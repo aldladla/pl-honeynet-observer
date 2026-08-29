@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Lokalny dashboard analizy sesji honeypot PL Honeynet Observer"
+    />
+    <title>PL Honeynet Observer — ślad sesji</title>
+    <link rel="stylesheet" href="/static/dashboard.css?v=4" />
+    <script src="/static/dashboard.js?v=4" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#investigation">Przejdź do analizy</a>
+
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="PL Honeynet Observer — strona główna">
+        <span class="brand-mark" aria-hidden="true">PL/HN</span>
+        <span class="brand-name">Honeynet<br />Observer</span>
+      </a>
+      <div class="masthead-context">
+        <span class="context-label">Środowisko</span>
+        <span class="lab-status"><i aria-hidden="true"></i> lokalne laboratorium</span>
+        <span id="sync-status" class="sync-status" aria-live="polite">łączenie…</span>
+      </div>
+      <nav class="masthead-nav" aria-label="Nawigacja techniczna">
+        <a href="/docs">API</a>
+        <button id="refresh-button" class="refresh-button" type="button">
+          <span aria-hidden="true">↻</span> Odśwież dane
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="thesis" aria-labelledby="page-title">
+        <div class="thesis-copy">
+          <p class="eyebrow">Rekonstrukcja sesji / sensor SSH</p>
+          <h1 id="page-title">Zobacz zachowanie,<br /><em>nie tylko alert.</em></h1>
+          <p class="lede">
+            Każde połączenie jest śladem. Łączymy logowanie, komendy i transfery
+            w jedną czytelną historię — bez wykonywania przechwyconych plików.
+          </p>
+        </div>
+
+        <div class="signal-route" aria-label="Przepływ danych od źródła do raportu">
+          <div class="route-node">
+            <span class="route-index">01</span>
+            <strong>Źródło</strong>
+            <small>połączenie</small>
+          </div>
+          <div class="route-link"><span aria-hidden="true"></span></div>
+          <div class="route-node route-node-active">
+            <span class="route-index">02</span>
+            <strong>Sensor</strong>
+            <small>obserwacja</small>
+          </div>
+          <div class="route-link"><span aria-hidden="true"></span></div>
+          <div class="route-node">
+            <span class="route-index">03</span>
+            <strong>Ślad</strong>
+            <small>rekonstrukcja</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="measurement-strip" aria-label="Podsumowanie laboratorium">
+        <div class="measurement">
+          <span class="measurement-label">Sesje</span>
+          <strong id="stat-sessions">—</strong>
+          <small>zgrupowane po identyfikatorze</small>
+        </div>
+        <div class="measurement">
+          <span class="measurement-label">Zdarzenia</span>
+          <strong id="stat-events">—</strong>
+          <small id="stat-events-note">zwalidowane wpisy</small>
+        </div>
+        <div class="measurement">
+          <span class="measurement-label">Sensory</span>
+          <strong id="stat-sensors">—</strong>
+          <small>aktywne źródła telemetrii</small>
+        </div>
+        <div class="measurement measurement-accent">
+          <span class="measurement-label">Komendy</span>
+          <strong id="stat-commands">—</strong>
+          <small>obserwowane wejścia</small>
+        </div>
+      </section>
+
+      <section class="workbench" id="investigation">
+        <aside class="session-browser" aria-labelledby="sessions-title">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Indeks obserwacji</p>
+              <h2 id="sessions-title">Sesje</h2>
+            </div>
+            <span id="session-count" class="count-badge">—</span>
+          </div>
+          <div id="session-list" class="session-list" aria-live="polite">
+            <div class="session-skeleton"></div>
+            <div class="session-skeleton"></div>
+          </div>
+        </aside>
+
+        <article class="case-file" aria-labelledby="case-title">
+          <div id="case-loading" class="case-loading" role="status">
+            <span class="loading-line"></span>
+            <p>Składamy ślad sesji…</p>
+          </div>
+
+          <div id="case-content" hidden>
+            <header class="case-header">
+              <div>
+                <p class="section-kicker">Aktywna rekonstrukcja</p>
+                <h2 id="case-title">—</h2>
+                <p id="case-source" class="case-source">—</p>
+                <p id="case-geo" class="case-geo">GeoIP: baza lokalna niepodłączona</p>
+              </div>
+              <div id="risk-stamp" class="risk-stamp">
+                <span class="risk-caption">Wskaźnik śladu</span>
+                <strong id="risk-score">—</strong>
+                <span id="risk-label">—</span>
+              </div>
+            </header>
+
+            <div class="case-facts" aria-label="Parametry sesji">
+              <div><span>Sensor</span><strong id="case-sensor">—</strong></div>
+              <div><span>Początek UTC</span><strong id="case-start">—</strong></div>
+              <div><span>Czas trwania</span><strong id="case-duration">—</strong></div>
+              <div><span>Zdarzenia</span><strong id="case-events">—</strong></div>
+            </div>
+
+            <section class="reading" aria-labelledby="reading-title">
+              <span class="reading-rule" aria-hidden="true"></span>
+              <div>
+                <p class="section-kicker">Odczyt analityczny</p>
+                <h3 id="reading-title">Co wydarzyło się w tej sesji?</h3>
+                <p id="case-reading">—</p>
+              </div>
+            </section>
+
+            <section class="attack-chain" aria-labelledby="attack-chain-title">
+              <div class="trace-heading">
+                <div>
+                  <p class="section-kicker">Rekonstrukcja oparta na dowodach</p>
+                  <h3 id="attack-chain-title">Łańcuch ataku</h3>
+                </div>
+                <span id="attack-chain-count">0 etapów</span>
+              </div>
+              <div id="attack-chain-list" class="attack-chain-list"></div>
+            </section>
+
+            <section class="detections" aria-labelledby="detections-title">
+              <div class="trace-heading">
+                <div>
+                  <p class="section-kicker">Reguły zachowania</p>
+                  <h3 id="detections-title">Detekcje</h3>
+                </div>
+                <span id="detection-count">0 sygnałów</span>
+              </div>
+              <div id="detection-list" class="detection-list"></div>
+            </section>
+
+            <section class="trace" aria-labelledby="trace-title">
+              <div class="trace-heading">
+                <div>
+                  <p class="section-kicker">Ślad chronologiczny</p>
+                  <h3 id="trace-title">Oś zdarzeń</h3>
+                </div>
+                <span>UTC / kolejność rosnąca</span>
+              </div>
+              <ol id="timeline" class="timeline"></ol>
+            </section>
+          </div>
+
+          <div id="case-error" class="case-error" hidden role="alert">
+            <strong>Nie udało się odczytać sesji.</strong>
+            <p>Sprawdź, czy lokalny backend nadal działa, i odśwież dane.</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="artifact-vault candidate-vault" aria-labelledby="candidate-title">
+        <header class="artifact-vault-header">
+          <div>
+            <p class="section-kicker">Intake 24/7 / bez kontaktu ze źródłem</p>
+            <h2 id="candidate-title">Kandydaci do pozyskania</h2>
+            <p>
+              Powtarzające się próby pobrania są łączone bez odwiedzania zapisanych
+              adresów. To kolejka decyzji analityka, a nie magazyn pobranych plików.
+            </p>
+          </div>
+          <div class="artifact-vault-count">
+            <strong id="candidate-count">—</strong>
+            <span>unikalnych źródeł</span>
+          </div>
+        </header>
+        <div class="artifact-guardrail candidate-guardrail" role="note">
+          <span aria-hidden="true">GATE / OFF</span>
+          <p>
+            Rejestracja działa stale. Fetcher jest wyłączony: nic nie jest pobierane,
+            uruchamiane ani wysyłane do laboratorium bez osobnej decyzji operatora.
+          </p>
+        </div>
+        <div id="candidate-list" class="artifact-list" aria-live="polite">
+          <div class="artifact-empty">Ładowanie kandydatów…</div>
+        </div>
+      </section>
+
+      <section class="artifact-vault" aria-labelledby="artifact-title">
+        <header class="artifact-vault-header">
+          <div>
+            <p class="section-kicker">Kolejka analityczna / tylko metadane</p>
+            <h2 id="artifact-title">Artefakty do triage</h2>
+            <p>
+              Powtarzające się obserwacje są łączone po SHA-256. Panel nie udostępnia
+              zawartości pliku i nie wykonuje żadnych połączeń do zapisanych źródeł.
+            </p>
+          </div>
+          <div class="artifact-vault-count">
+            <strong id="artifact-count">—</strong>
+            <span>unikalnych skrótów</span>
+          </div>
+        </header>
+        <div class="artifact-guardrail" role="note">
+          <span aria-hidden="true">LOCK / 01</span>
+          <p>
+            Eksport obejmuje wyłącznie manifest JSON: hash, czas i kontekst obserwacji.
+            Nie zawiera próbki, surowego IP, hasła ani adresu pobrania.
+          </p>
+        </div>
+        <div id="artifact-list" class="artifact-list" aria-live="polite">
+          <div class="artifact-empty">Ładowanie kolejki metadanych…</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      <span>PL Honeynet Observer / MVP 0.1</span>
+      <p>
+        Wskaźnik śladu opisuje obserwowane zachowanie, nie jest atrybucją sprawcy
+        ani dowodem ukierunkowania ataku na Polskę.
+      </p>
+    </footer>
+  </body>
+</html>

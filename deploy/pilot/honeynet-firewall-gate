@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+CHAIN="HONEYNET-SENSOR"
+EGRESS_CHAIN="HONEYNET-EGRESS"
+INGRESS_SUBNET="172.30.255.0/28"
+PORT="${SENSOR_PUBLIC_PORT:-2222}"
+MODE="${1:-status}"
+
+fail() {
+  logger -t honeynet-firewall -- "$*"
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail "firewall gate requires root"
+[[ "${PORT}" =~ ^[0-9]+$ ]] || fail "SENSOR_PUBLIC_PORT must be numeric"
+(( PORT >= 1 && PORT <= 65535 )) || fail "SENSOR_PUBLIC_PORT is outside 1-65535"
+command -v iptables >/dev/null 2>&1 || fail "iptables is not installed"
+iptables -w 5 -nL DOCKER-USER >/dev/null 2>&1 || fail "DOCKER-USER chain unavailable"
+
+ensure_egress_block() {
+  iptables -w 5 -N "${EGRESS_CHAIN}" 2>/dev/null || true
+  if ! iptables -w 5 -C "${EGRESS_CHAIN}" -m conntrack --ctstate NEW \
+    -j DROP 2>/dev/null; then
+    iptables -w 5 -I "${EGRESS_CHAIN}" 1 -m conntrack --ctstate NEW -j DROP
+  fi
+  if ! iptables -w 5 -C "${EGRESS_CHAIN}" -j RETURN 2>/dev/null; then
+    iptables -w 5 -A "${EGRESS_CHAIN}" -j RETURN
+  fi
+  if ! iptables -w 5 -C DOCKER-USER -s "${INGRESS_SUBNET}" \
+    -m comment --comment honeynet-sensor-egress -j "${EGRESS_CHAIN}" \
+    2>/dev/null; then
+    iptables -w 5 -I DOCKER-USER 1 -s "${INGRESS_SUBNET}" \
+      -m comment --comment honeynet-sensor-egress -j "${EGRESS_CHAIN}"
+  fi
+}
+
+ensure_chain() {
+  ensure_egress_block
+  iptables -w 5 -N "${CHAIN}" 2>/dev/null || true
+  if ! iptables -w 5 -C DOCKER-USER -p tcp -m conntrack \
+    --ctorigdstport "${PORT}" -m comment --comment honeynet-sensor-gate \
+    -j "${CHAIN}" 2>/dev/null; then
+    iptables -w 5 -I DOCKER-USER 2 -p tcp -m conntrack \
+      --ctorigdstport "${PORT}" -m comment --comment honeynet-sensor-gate \
+      -j "${CHAIN}"
+  fi
+}
+
+set_target() {
+  local target="$1"
+  ensure_chain
+  iptables -w 5 -F "${CHAIN}"
+  iptables -w 5 -A "${CHAIN}" -j "${target}"
+}
+
+case "${MODE}" in
+  init|close)
+    set_target DROP
+    logger -t honeynet-firewall -- "sensor gate CLOSED on original TCP port ${PORT}"
+    ;;
+  open)
+    [[ "${PUBLICATION_APPROVED:-no}" == "yes" ]] || \
+      fail "PUBLICATION_APPROVED=yes is required to open the sensor gate"
+    set_target RETURN
+    logger -t honeynet-firewall -- "sensor gate OPEN on original TCP port ${PORT}"
+    ;;
+  status)
+    iptables -w 5 -C DOCKER-USER -s "${INGRESS_SUBNET}" \
+      -m comment --comment honeynet-sensor-egress -j "${EGRESS_CHAIN}" \
+      >/dev/null 2>&1 || fail "sensor egress gate is not installed"
+    iptables -w 5 -C DOCKER-USER -p tcp -m conntrack \
+      --ctorigdstport "${PORT}" -m comment --comment honeynet-sensor-gate \
+      -j "${CHAIN}" >/dev/null 2>&1 || \
+      fail "sensor gate is not attached to original TCP port ${PORT}"
+    iptables -w 5 -C "${EGRESS_CHAIN}" -m conntrack --ctstate NEW -j DROP \
+      >/dev/null 2>&1 || fail "sensor egress is not blocked"
+    iptables -w 5 -nL "${CHAIN}" >/dev/null 2>&1 || fail "sensor gate is not installed"
+    if iptables -w 5 -C "${CHAIN}" -j RETURN 2>/dev/null; then
+      printf 'OPEN port=%s\n' "${PORT}"
+      exit 0
+    fi
+    if iptables -w 5 -C "${CHAIN}" -j DROP 2>/dev/null; then
+      printf 'CLOSED port=%s\n' "${PORT}"
+      exit 2
+    fi
+    fail "sensor gate has an unknown ruleset"
+    ;;
+  *)
+    fail "usage: honeynet-firewall-gate {init|open|close|status}"
+    ;;
+esac

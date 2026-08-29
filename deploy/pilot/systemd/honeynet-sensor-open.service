@@ -1,0 +1,10 @@
+[Unit]
+Description=Explicitly activate the PL Honeynet public sensor
+After=docker.service honeynet-firewall.service
+Requires=docker.service honeynet-firewall.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/pl-honeynet-observer/.env
+Environment=HONEYPOT_PROJECT_DIR=/opt/pl-honeynet-observer
+ExecStart=/usr/local/sbin/honeynet-sensor-open

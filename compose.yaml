@@ -1,0 +1,348 @@
+name: pl-honeynet-observer
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: honeynet
+      POSTGRES_USER: honeynet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honeynet -d honeynet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    logging: *default-logging
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
+  collector:
+    build: .
+    profiles: ["lab"]
+    command:
+      - honeynet
+      - watch-cowrie
+      - /cowrie-data/log/cowrie/cowrie.json
+      - --state
+      - /data/cowrie.cursor.json
+      - --interval
+      - "2"
+    environment:
+      DATABASE_URL: postgresql+psycopg://honeynet:${POSTGRES_PASSWORD:-local-development-only}@db:5432/honeynet
+    depends_on:
+      db:
+        condition: service_healthy
+      cowrie:
+        condition: service_started
+      collector-init:
+        condition: service_completed_successfully
+    volumes:
+      - cowrie-var:/cowrie-data:ro
+      - collector-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD
+        - honeynet
+        - collector-health
+        - /data/cowrie.cursor.json
+        - --max-age
+        - "30"
+      interval: 10s
+      # Importer is a Python CLI, so process startup can exceed 3 seconds on a
+      # small VPS even when its heartbeat is current.
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    logging: *default-logging
+    pids_limit: 100
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+
+  collector-init:
+    build: .
+    profiles: ["lab"]
+    user: "0:0"
+    command: ["chown", "-R", "10001:10001", "/data"]
+    volumes:
+      - collector-data:/data
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    logging: *default-logging
+    pids_limit: 50
+    mem_limit: 64m
+    cpus: 0.25
+    restart: "no"
+
+  retention:
+    build: .
+    profiles: ["lab"]
+    command:
+      - honeynet
+      - retention-worker
+      - --days
+      - "30"
+      - --interval
+      - "86400"
+    environment:
+      DATABASE_URL: postgresql+psycopg://honeynet:${POSTGRES_PASSWORD:-local-development-only}@db:5432/honeynet
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    logging: *default-logging
+    pids_limit: 50
+    mem_limit: 128m
+    cpus: 0.25
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://honeynet:${POSTGRES_PASSWORD:-local-development-only}@db:5432/honeynet
+      SENSOR_ID: ${SENSOR_ID:-local-cowrie-01}
+      REPORT_PSEUDONYM_KEY: ${REPORT_PSEUDONYM_KEY:-local-development-only}
+      DASHBOARD_EVENT_LIMIT: ${DASHBOARD_EVENT_LIMIT:-50000}
+      GEOIP_COUNTRY_DB_PATH: ${GEOIP_COUNTRY_DB_PATH:-/geoip/server-country-ipv4.mmdb}
+      GEOIP_ASN_DB_PATH: ${GEOIP_ASN_DB_PATH:-/geoip/origin-asn-ipv4.mmdb}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./fixtures:/app/fixtures:ro
+      - ./reports:/app/reports
+      - cowrie-var:/cowrie-data:ro
+      - ./data/geoip:/geoip:ro
+    networks:
+      - backend
+      - ingress
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    logging: *default-logging
+    pids_limit: 100
+    # The dashboard materializes and correlates a bounded recent event window.
+    # Keep enough headroom for the configured 50k-event limit while preserving
+    # Docker's hard containment and the independent host-side monitor.
+    mem_limit: 768m
+    cpus: 0.5
+    restart: unless-stopped
+
+  grafana-bootstrap:
+    image: postgres:17-alpine
+    profiles: ["lab"]
+    command: ["/scripts/bootstrap.sh"]
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: honeynet
+      POSTGRES_USER: honeynet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:-local-grafana-reader-only}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./deploy/grafana/bootstrap.sh:/scripts/bootstrap.sh:ro
+    networks:
+      - backend
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    logging: *default-logging
+    pids_limit: 50
+    mem_limit: 96m
+    cpus: 0.25
+    restart: "no"
+
+  grafana:
+    image: grafana/grafana:12.4.0
+    profiles: ["lab"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-honeynet-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-local-grafana-admin-only}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:-local-grafana-reader-only}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_EXPLORE_ENABLED: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://127.0.0.1:3000}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_LOG_LEVEL: warn
+    depends_on:
+      grafana-bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - backend
+      - ingress
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    pids_limit: 150
+    mem_limit: 384m
+    cpus: 0.75
+    restart: unless-stopped
+
+  cowrie:
+    image: cowrie/cowrie:3.0.12
+    profiles: ["lab"]
+    environment:
+      COWRIE_HONEYPOT_SENSOR_NAME: ${SENSOR_ID:-pl-lab-01}
+      COWRIE_HONEYPOT_TIMEZONE: UTC
+      # One stable, internally consistent Debian persona. These values affect
+      # only Cowrie's emulated shell and never describe the VPS host.
+      COWRIE_HONEYPOT_HOSTNAME: app-prod-01
+      COWRIE_HONEYPOT_CONTENTS_PATH: /cowrie/cowrie-git/persona/honeyfs
+      COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE: ${COWRIE_DOWNLOAD_LIMIT_SIZE_BYTES:-16777216}
+      COWRIE_SHELL_KERNEL_NAME: Linux
+      COWRIE_SHELL_KERNEL_VERSION: 6.1.0-21-amd64
+      COWRIE_SHELL_KERNEL_BUILD_STRING: "#1 SMP PREEMPT_DYNAMIC Debian 6.1.90-1 (2024-05-03)"
+      COWRIE_SHELL_HARDWARE_PLATFORM: x86_64
+      COWRIE_SHELL_OPERATING_SYSTEM: GNU/Linux
+      COWRIE_SHELL_ARCH: linux-x64-lsb
+      COWRIE_SHELL_SSH_VERSION: "OpenSSH_9.2p1 Debian-2+deb12u3, OpenSSL 3.0.11 19 Sep 2023"
+      COWRIE_SSH_VERSION: SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3
+      COWRIE_SSH_FORWARDING: "false"
+      COWRIE_SSH_FORWARD_REDIRECT: "false"
+      COWRIE_SSH_FORWARD_TUNNEL: "false"
+      # Trust PROXY headers only because Cowrie is private and every connection
+      # comes through ssh-gateway, which derives the identity from its socket.
+      COWRIE_SSH_LISTEN_ENDPOINTS: "haproxy:tcp:2222:interface=0.0.0.0"
+      COWRIE_TELNET_ENABLED: "false"
+      COWRIE_OUTPUT_JSONLOG_ENABLED: "true"
+      COWRIE_OUTPUT_JSONLOG_EPOCH_TIMESTAMP: "false"
+    volumes:
+      - cowrie-var:/cowrie/cowrie-git/var
+      # The command registry is the unmodified v3.0.12 registry plus one
+      # final, local module that overrides only wget/curl. The override never
+      # opens a socket; it creates a harmless per-session virtual placeholder.
+      - ./deploy/cowrie-persona/commands/__init__.py:/cowrie/cowrie-git/src/cowrie/commands/__init__.py:ro
+      - ./deploy/cowrie-persona/commands/safe_transfer.py:/cowrie/cowrie-git/src/cowrie/commands/safe_transfer.py:ro
+      - ./deploy/cowrie-persona/honeyfs:/cowrie/cowrie-git/persona/honeyfs:ro
+      - ./deploy/cowrie-persona/safe-placeholder.sh:/cowrie/cowrie-git/persona/safe-placeholder.sh:ro
+    networks:
+      - sensor-lab
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    pids_limit: 200
+    mem_limit: 512m
+    cpus: 1.0
+    restart: "no"
+
+  ssh-gateway:
+    build: .
+    profiles: ["lab"]
+    command: ["python", "-m", "honeynet.tcp_proxy"]
+    environment:
+      UPSTREAM_HOST: cowrie
+      UPSTREAM_PORT: "2222"
+    depends_on:
+      - cowrie
+    ports:
+      - "${SENSOR_BIND_IP:-127.0.0.1}:${SENSOR_PUBLIC_PORT:-2222}:2222/tcp"
+    networks:
+      - sensor-ingress
+      - sensor-lab
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    logging: *default-logging
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.5
+    restart: "no"
+
+networks:
+  backend:
+    internal: true
+  sensor-lab:
+    internal: true
+  # Dedicated published-port network. Host rules in DOCKER-USER deny every new
+  # outbound connection originating from this subnet while allowing replies to
+  # clients that connected to the sensor.
+  sensor-ingress:
+    ipam:
+      config:
+        - subnet: 172.30.255.0/28
+  ingress:
+
+volumes:
+  postgres-data:
+  cowrie-var:
+  collector-data:
+  grafana-data:

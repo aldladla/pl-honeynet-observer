@@ -1,0 +1,8 @@
+{
+  "artifact_id": "benign-transfer-test-001",
+  "filename": "benign-analysis-sample.txt",
+  "sha256": "1810014ebf510fc6c91c54d039b208f43f0f87f6818ea5707560ce9e2e2f09cf",
+  "classification": "harmless_test_fixture",
+  "execution_allowed": false,
+  "purpose": "Verify hashing, read-only transfer, and snapshot reset without malware."
+}

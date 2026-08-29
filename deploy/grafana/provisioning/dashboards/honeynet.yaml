@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: PL Honeynet
+    orgId: 1
+    folder: PL Honeynet
+    folderUid: pl-honeynet
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROJECT_DIR="${HONEYPOT_PROJECT_DIR:-/opt/pl-honeynet-observer}"
+ENV_FILE="${HONEYPOT_ENV_FILE:-${PROJECT_DIR}/.env}"
+FIREWALL_GATE="${HONEYPOT_FIREWALL_GATE:-/usr/local/sbin/honeynet-firewall-gate}"
+PREFLIGHT="${HONEYPOT_PREFLIGHT:-/usr/local/sbin/honeynet-preflight}"
+BASELINE="${HONEYPOT_BASELINE:-/usr/local/sbin/honeynet-baseline}"
+
+fail() {
+  logger -t honeynet-sensor-open -- "$*"
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail "sensor activation requires root"
+[[ "${PUBLICATION_APPROVED:-no}" == "yes" ]] || \
+  fail "PUBLICATION_APPROVED=yes is required"
+[[ -n "${SENSOR_BIND_IP:-}" ]] || fail "SENSOR_BIND_IP must be explicit"
+[[ "${SENSOR_BIND_IP}" != "127.0.0.1" ]] || fail "SENSOR_BIND_IP is still loopback"
+[[ "${SENSOR_BIND_IP}" != "0.0.0.0" ]] || \
+  fail "bind to the explicit VPS address, not 0.0.0.0"
+[[ -f "${PROJECT_DIR}/compose.yaml" ]] || fail "compose.yaml not found"
+[[ -f "${ENV_FILE}" ]] || fail "private environment file not found"
+[[ -x "${FIREWALL_GATE}" ]] || fail "firewall gate is not installed"
+[[ -x "${PREFLIGHT}" ]] || fail "preflight is not installed"
+[[ -x "${BASELINE}" ]] || fail "baseline checker is not installed"
+command -v docker >/dev/null 2>&1 || fail "docker CLI is unavailable"
+
+compose=(docker compose --project-directory "${PROJECT_DIR}" --env-file "${ENV_FILE}" \
+  -f "${PROJECT_DIR}/compose.yaml" --profile lab)
+
+# Any exit before the final success flag leaves both layers closed.
+activation_complete=false
+cleanup_on_exit() {
+  if [[ "${activation_complete}" != "true" ]]; then
+    "${FIREWALL_GATE}" close >/dev/null 2>&1 || true
+    "${compose[@]}" stop --timeout 3 ssh-gateway >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_on_exit EXIT
+
+"${PREFLIGHT}"
+"${BASELINE}" verify
+
+running="$("${compose[@]}" ps --status running --services)"
+for service in db app cowrie collector retention; do
+  grep -Fxq "${service}" <<<"${running}" || fail "required service is not running: ${service}"
+done
+
+"${FIREWALL_GATE}" close
+"${compose[@]}" up -d --no-deps ssh-gateway
+grep -Fxq ssh-gateway <<<"$("${compose[@]}" ps --status running --services)" || \
+  fail "ssh-gateway did not start"
+"${FIREWALL_GATE}" open
+activation_complete=true
+trap - EXIT
+
+logger -t honeynet-sensor-open -- \
+  "sensor activated on ${SENSOR_BIND_IP}:${SENSOR_PUBLIC_PORT:-2222}"
+printf 'Sensor aktywny na %s:%s.\n' "${SENSOR_BIND_IP}" "${SENSOR_PUBLIC_PORT:-2222}"

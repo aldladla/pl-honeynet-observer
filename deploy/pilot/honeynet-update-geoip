@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROJECT_DIR="${HONEYPOT_PROJECT_DIR:-/opt/pl-honeynet-observer}"
+TARGET_DIR="${PROJECT_DIR}/data/geoip"
+BASE_URL="https://github.com/sapics/ip-location-db/releases/download"
+FILES=(server-country-ipv4.mmdb origin-asn-ipv4.mmdb)
+
+fail() {
+  logger -t honeynet-geoip -- "$*"
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail "GeoIP update requires root"
+for command in curl sha256sum install mv mktemp logger; do
+  command -v "${command}" >/dev/null 2>&1 || fail "required command is missing: ${command}"
+done
+
+stage="$(mktemp -d)"
+trap 'rm -rf -- "${stage}"' EXIT
+cd "${stage}"
+
+for file in "${FILES[@]}"; do
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    --output "${file}" "${BASE_URL}/latest/${file}"
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    --output "${file}.sha256" "${BASE_URL}/checksum/${file}.sha256"
+  sha256sum --check --strict "${file}.sha256" >/dev/null || \
+    fail "checksum mismatch for ${file}"
+done
+
+install -d -o root -g root -m 0755 "${TARGET_DIR}"
+for file in "${FILES[@]}"; do
+  install -o root -g root -m 0644 "${file}" "${TARGET_DIR}/${file}.new"
+  mv -f -- "${TARGET_DIR}/${file}.new" "${TARGET_DIR}/${file}"
+done
+
+logger -t honeynet-geoip -- "offline country and ASN databases updated"
+printf 'GeoIP zaktualizowane: %s\n' "${TARGET_DIR}"

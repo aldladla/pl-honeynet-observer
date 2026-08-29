@@ -1,0 +1,140 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": true,
+      "title": "Dokładne sesje i komendy",
+      "tooltip": "Otwórz prywatny panel śledczy przez drugi tunel SSH",
+      "type": "link",
+      "url": "http://127.0.0.1:18000/"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "pluginVersion": "12.4.0",
+      "targets": [{"datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT count(*)::bigint AS value FROM grafana_safe.session_summary WHERE $__timeFilter(started_at);", "refId": "A"}],
+      "title": "Sesje",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}, {"color": "purple", "value": 25}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "pluginVersion": "12.4.0",
+      "targets": [{"datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT count(*)::bigint AS value FROM grafana_safe.event_stream WHERE $__timeFilter(observed_at);", "refId": "A"}],
+      "title": "Zdarzenia",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "pluginVersion": "12.4.0",
+      "targets": [{"datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT coalesce(sum(command_count), 0)::bigint AS value FROM grafana_safe.session_summary WHERE $__timeFilter(started_at);", "refId": "A"}],
+      "title": "Polecenia",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "pluginVersion": "12.4.0",
+      "targets": [{"datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT coalesce(sum(artifact_count), 0)::bigint AS value FROM grafana_safe.session_summary WHERE $__timeFilter(started_at);", "refId": "A"}],
+      "title": "Artefakty / transfery",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-GrYlRd"}, "links": []}, "overrides": []},
+      "gridPos": {"h": 15, "w": 15, "x": 0, "y": 4},
+      "id": 5,
+      "description": "Zagregowany obraz wybranego okresu. Rozmiar opisuje liczbę zdarzeń, a podpis liczbę sesji. Dokładne sesje, ryzyko i komendy znajdują się w tabeli obok.",
+      "options": {"nodes": {"arcs": []}, "edges": {}},
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH events AS (SELECT * FROM grafana_safe.event_stream WHERE $__timeFilter(observed_at)), behavior_groups AS (SELECT event_type, count(*)::bigint AS event_count, count(DISTINCT session_id)::bigint AS session_count FROM events GROUP BY event_type) SELECT 'sensor' AS id, 'PL Honeynet' AS title, 'monitorowany sensor' AS \"subTitle\", count(DISTINCT session_id)::double precision AS \"mainStat\", count(*)::text || ' zdarzeń' AS \"secondaryStat\", '#5794f2' AS color FROM events UNION ALL SELECT 'behavior:' || event_type, CASE event_type WHEN 'connection_opened' THEN 'Połączenia' WHEN 'client_fingerprint' THEN 'Fingerprint klienta' WHEN 'login_attempt' THEN 'Logowania' WHEN 'command_input' THEN 'Polecenia' WHEN 'artifact_captured' THEN 'Artefakty' WHEN 'file_download_requested' THEN 'Próby transferu' WHEN 'connection_closed' THEN 'Zamknięcia' ELSE replace(event_type, '_', ' ') END, 'typ zachowania', event_count::double precision, session_count::text || ' sesji', CASE WHEN event_type IN ('artifact_captured','file_download_requested') THEN '#e24d42' WHEN event_type = 'command_input' THEN '#ff9830' WHEN event_type = 'login_attempt' THEN '#f2cc0c' ELSE '#73bf69' END FROM behavior_groups;",
+          "refId": "nodes"
+        },
+        {
+          "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH events AS (SELECT * FROM grafana_safe.event_stream WHERE $__timeFilter(observed_at)), behavior_groups AS (SELECT event_type, count(*)::bigint AS event_count FROM events GROUP BY event_type) SELECT 'sensor-behavior:' || event_type AS id, 'sensor' AS source, 'behavior:' || event_type AS target, event_count::double precision AS \"mainStat\" FROM behavior_groups;",
+          "refId": "edges"
+        }
+      ],
+      "title": "Mapa zachowań — sensor → obserwowane aktywności",
+      "type": "nodeGraph"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}, "inspect": false}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 50}, {"color": "red", "value": 90}]}}, "overrides": [{"matcher": {"id": "byName", "options": "session_id"}, "properties": [{"id": "links", "value": [{"targetBlank": true, "title": "Otwórz pełną sesję", "url": "http://127.0.0.1:18000/#${__value.raw}"}]}]}, {"matcher": {"id": "byName", "options": "risk_score"}, "properties": [{"id": "custom.cellOptions", "value": {"mode": "basic", "type": "color-background"}}]}]},
+      "gridPos": {"h": 15, "w": 9, "x": 15, "y": 4},
+      "id": 6,
+      "options": {"cellHeight": "sm", "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false}, "showHeader": true, "sortBy": [{"desc": true, "displayName": "started_at"}]},
+      "pluginVersion": "12.4.0",
+      "targets": [{"datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT session_id, started_at, risk_score, risk_label, event_count, command_count, artifact_count, duration_seconds FROM grafana_safe.session_summary WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 100;", "refId": "A"}],
+      "title": "Sesje wymagające uwagi — kliknij ID",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "bars", "fillOpacity": 35, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "smooth", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "gridPos": {"h": 9, "w": 14, "x": 0, "y": 19},
+      "id": 7,
+      "options": {"legend": {"calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"hideZeros": false, "mode": "multi", "sort": "desc"}},
+      "pluginVersion": "12.4.0",
+      "targets": [{"datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"}, "editorMode": "code", "format": "time_series", "rawQuery": true, "rawSql": "SELECT $__timeGroupAlias(observed_at, '1h'), event_type AS metric, count(*)::double precision AS value FROM grafana_safe.event_stream WHERE $__timeFilter(observed_at) GROUP BY 1, event_type ORDER BY 1;", "refId": "A"}],
+      "title": "Aktywność w czasie według typu zdarzenia",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "mappings": []}, "overrides": []},
+      "gridPos": {"h": 9, "w": 10, "x": 14, "y": 19},
+      "id": 8,
+      "options": {"displayLabels": ["name", "percent"], "legend": {"displayMode": "table", "placement": "right", "showLegend": true, "values": ["value", "percent"]}, "pieType": "donut", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": true}, "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}},
+      "pluginVersion": "12.4.0",
+      "targets": [{"datasource": {"type": "postgres", "uid": "pl-honeynet-postgres"}, "editorMode": "code", "format": "table", "rawQuery": true, "rawSql": "SELECT event_type AS metric, count(*)::double precision AS value FROM grafana_safe.event_stream WHERE $__timeFilter(observed_at) GROUP BY event_type ORDER BY value DESC;", "refId": "A"}],
+      "title": "Struktura zachowań",
+      "type": "piechart"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 42,
+  "tags": ["honeypot", "defensive", "operator"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "PL Honeynet — Campaign & Evidence Overview",
+  "uid": "pl-honeynet-overview",
+  "version": 1,
+  "weekStart": "monday"
+}

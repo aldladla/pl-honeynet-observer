@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROJECT_DIR="${HONEYPOT_PROJECT_DIR:-/opt/pl-honeynet-observer}"
+ENV_FILE="${HONEYPOT_ENV_FILE:-${PROJECT_DIR}/.env}"
+BASELINE_FILE="${HONEYPOT_BASELINE_FILE:-/var/lib/honeynet/pilot-baseline.sha256}"
+MODE="${1:-verify}"
+
+fail() {
+  logger -t honeynet-baseline -- "$*"
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail "baseline requires root"
+for command in docker sha256sum find sort xargs mktemp cmp install; do
+  command -v "${command}" >/dev/null 2>&1 || fail "required command is missing: ${command}"
+done
+[[ -f "${PROJECT_DIR}/compose.yaml" ]] || fail "compose.yaml not found"
+[[ -f "${ENV_FILE}" ]] || fail "private environment file not found"
+
+compose=(docker compose --project-directory "${PROJECT_DIR}" --env-file "${ENV_FILE}" \
+  -f "${PROJECT_DIR}/compose.yaml" --profile lab)
+
+render_baseline() {
+  find "${PROJECT_DIR}/compose.yaml" "${PROJECT_DIR}/Dockerfile" \
+    "${PROJECT_DIR}/pyproject.toml" "${PROJECT_DIR}/src/honeynet" \
+    "${PROJECT_DIR}/deploy/pilot" "${PROJECT_DIR}/deploy/cowrie-persona" \
+    -type f -print0 \
+    | sort -z | xargs -0 sha256sum
+  for service in db app cowrie collector retention ssh-gateway; do
+    container_id="$("${compose[@]}" ps --all -q "${service}")"
+    [[ -n "${container_id}" ]] || fail "container does not exist for baseline: ${service}"
+    image_id="$(docker inspect --format '{{.Image}}' "${container_id}")"
+    printf 'IMAGE  %s  %s\n' "${image_id}" "${service}"
+  done
+}
+
+temporary="$(mktemp)"
+trap 'rm -f "${temporary}"' EXIT
+render_baseline >"${temporary}"
+
+case "${MODE}" in
+  capture)
+    [[ "${PUBLICATION_APPROVED:-no}" == "yes" ]] || \
+      fail "PUBLICATION_APPROVED=yes is required to capture a pilot baseline"
+    install -d -m 0700 "$(dirname "${BASELINE_FILE}")"
+    install -m 0600 "${temporary}" "${BASELINE_FILE}"
+    logger -t honeynet-baseline -- "pilot baseline captured"
+    printf 'Baseline zapisany: %s\n' "${BASELINE_FILE}"
+    ;;
+  verify)
+    [[ -f "${BASELINE_FILE}" ]] || fail "pilot baseline is missing"
+    if ! cmp -s "${BASELINE_FILE}" "${temporary}"; then
+      logger -t honeynet-baseline -- "pilot code, configuration, or image identity changed"
+      fail "pilot baseline mismatch"
+    fi
+    printf 'OK: baseline zgodny.\n'
+    ;;
+  *)
+    fail "usage: honeynet-baseline {capture|verify}"
+    ;;
+esac

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROJECT_DIR="${HONEYPOT_PROJECT_DIR:-/opt/pl-honeynet-observer}"
+ENV_FILE="${HONEYPOT_ENV_FILE:-${PROJECT_DIR}/.env}"
+FIREWALL_GATE="${HONEYPOT_FIREWALL_GATE:-/usr/local/sbin/honeynet-firewall-gate}"
+
+fail() {
+  logger -t honeynet-kill-switch -- "$*"
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail "kill switch requires root"
+[[ -x "${FIREWALL_GATE}" ]] || fail "firewall gate is not installed"
+
+# Close the host-level gate first. Even if stopping Docker later fails, new
+# connections to the published sensor port are dropped in DOCKER-USER.
+gate_failed=0
+"${FIREWALL_GATE}" close || gate_failed=1
+
+[[ -f "${PROJECT_DIR}/compose.yaml" ]] || fail "compose.yaml not found after firewall attempt"
+[[ -f "${ENV_FILE}" ]] || fail "private environment file not found after firewall attempt"
+command -v docker >/dev/null 2>&1 || fail "docker CLI is not installed after firewall attempt"
+
+compose=(docker compose --project-directory "${PROJECT_DIR}" --env-file "${ENV_FILE}" \
+  -f "${PROJECT_DIR}/compose.yaml" --profile lab)
+stop_failed=0
+"${compose[@]}" stop --timeout 3 ssh-gateway || stop_failed=1
+
+container_id="$("${compose[@]}" ps --all -q ssh-gateway || true)"
+if [[ -n "${container_id}" ]] && \
+  [[ "$(docker inspect --format '{{.State.Running}}' "${container_id}")" == "true" ]]; then
+  stop_failed=1
+fi
+
+(( gate_failed == 0 )) || fail "gateway stop attempted, but firewall gate did not close"
+(( stop_failed == 0 )) || fail "firewall closed, but ssh-gateway stop could not be verified"
+
+logger -t honeynet-kill-switch -- "sensor disconnected; evidence volumes preserved"
+printf 'Sensor odłączony. Wolumeny i dowody pozostawiono bez zmian.\n'

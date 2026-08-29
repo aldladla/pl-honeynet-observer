@@ -1,0 +1,15 @@
+[Unit]
+Description=PL Honeynet sensor firewall gate (closed by default)
+After=docker.service
+Requires=docker.service
+Before=honeynet-monitor.timer
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/pl-honeynet-observer/.env
+ExecStart=/usr/local/sbin/honeynet-firewall-gate init
+ExecReload=/usr/local/sbin/honeynet-firewall-gate close
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+PL Honeynet Observer — harmless static-analysis transfer test.
+
+This file contains no executable code, macro, script, URL, credential, or sample.
+Its only purpose is to verify hashing, a read-only transfer path, and snapshot reset.

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROJECT_DIR="${HONEYPOT_PROJECT_DIR:-/opt/pl-honeynet-observer}"
+ENV_FILE="${HONEYPOT_ENV_FILE:-${PROJECT_DIR}/.env}"
+PORT="${SENSOR_PUBLIC_PORT:-2222}"
+CAPTURE_LIMIT_BYTES="${COWRIE_DOWNLOAD_LIMIT_SIZE_BYTES:-16777216}"
+QUARANTINE_LIMIT_BYTES="${HONEYPOT_QUARANTINE_LIMIT_BYTES:-2147483648}"
+QUARANTINE_WARN_PERCENT="${HONEYPOT_QUARANTINE_WARN_PERCENT:-70}"
+
+fail() {
+  logger -t honeynet-preflight -- "$*"
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail "preflight requires root"
+for command in docker iptables ip curl grep awk df logger; do
+  command -v "${command}" >/dev/null 2>&1 || fail "required command is missing: ${command}"
+done
+[[ -f "${PROJECT_DIR}/compose.yaml" ]] || fail "compose.yaml not found"
+[[ -f "${ENV_FILE}" ]] || fail "private environment file not found"
+[[ "${PUBLICATION_APPROVED:-no}" == "yes" ]] || fail "publication is not approved"
+[[ "${POSTGRES_PASSWORD:-}" =~ ^[A-Za-z0-9_-]{24,}$ ]] || \
+  fail "POSTGRES_PASSWORD must be at least 24 URL-safe random characters"
+[[ "${REPORT_PSEUDONYM_KEY:-}" =~ ^[A-Za-z0-9_-]{24,}$ ]] || \
+  fail "REPORT_PSEUDONYM_KEY must be an independent 24+ character key"
+[[ "${POSTGRES_PASSWORD}" != "${REPORT_PSEUDONYM_KEY}" ]] || \
+  fail "database password and pseudonym key must differ"
+[[ "${GRAFANA_DB_PASSWORD:-}" =~ ^[A-Za-z0-9_-]{24,}$ ]] || \
+  fail "GRAFANA_DB_PASSWORD must be at least 24 URL-safe random characters"
+[[ "${GRAFANA_ADMIN_PASSWORD:-}" =~ ^[A-Za-z0-9_-]{24,}$ ]] || \
+  fail "GRAFANA_ADMIN_PASSWORD must be at least 24 URL-safe random characters"
+for secret in POSTGRES_PASSWORD REPORT_PSEUDONYM_KEY GRAFANA_DB_PASSWORD \
+  GRAFANA_ADMIN_PASSWORD; do
+  for other in POSTGRES_PASSWORD REPORT_PSEUDONYM_KEY GRAFANA_DB_PASSWORD \
+    GRAFANA_ADMIN_PASSWORD; do
+    [[ "${secret}" == "${other}" ]] && continue
+    [[ "${!secret}" != "${!other}" ]] || fail "all configured secrets must be independent"
+  done
+done
+[[ "${PORT}" =~ ^[0-9]+$ ]] || fail "SENSOR_PUBLIC_PORT must be numeric"
+(( PORT == 22 || (PORT >= 1024 && PORT <= 65535) )) || \
+  fail "pilot port must be 22 or between 1024 and 65535"
+for variable in CAPTURE_LIMIT_BYTES QUARANTINE_LIMIT_BYTES \
+  QUARANTINE_WARN_PERCENT; do
+  value="${!variable}"
+  [[ "${value}" =~ ^[0-9]+$ ]] || fail "${variable} must be numeric"
+done
+(( CAPTURE_LIMIT_BYTES >= 1048576 && CAPTURE_LIMIT_BYTES <= 67108864 )) || \
+  fail "capture limit must be between 1 MiB and 64 MiB"
+(( QUARANTINE_LIMIT_BYTES >= 134217728 && QUARANTINE_LIMIT_BYTES <= 17179869184 )) || \
+  fail "quarantine limit must be between 128 MiB and 16 GiB"
+(( QUARANTINE_LIMIT_BYTES > CAPTURE_LIMIT_BYTES )) || \
+  fail "quarantine limit must exceed the single-sample capture limit"
+(( QUARANTINE_WARN_PERCENT >= 50 && QUARANTINE_WARN_PERCENT <= 95 )) || \
+  fail "quarantine warning percent must be between 50 and 95"
+[[ -n "${SENSOR_BIND_IP:-}" ]] || fail "SENSOR_BIND_IP must be explicit"
+[[ "${SENSOR_BIND_IP}" != "127.0.0.1" && "${SENSOR_BIND_IP}" != "0.0.0.0" ]] || \
+  fail "SENSOR_BIND_IP must be a specific non-loopback IPv4 address"
+ip -4 addr show | grep -Fq " ${SENSOR_BIND_IP}/" || \
+  fail "SENSOR_BIND_IP is not assigned to this VPS"
+
+docker info >/dev/null 2>&1 || fail "Docker Engine is unavailable"
+docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is unavailable"
+iptables -w 5 -nL DOCKER-USER >/dev/null 2>&1 || \
+  fail "DOCKER-USER unavailable; nftables backend is not supported by this pilot"
+iptables -w 5 -C FORWARD -j DOCKER-USER >/dev/null 2>&1 || \
+  fail "FORWARD does not invoke DOCKER-USER"
+iptables -m conntrack -h >/dev/null 2>&1 || fail "iptables conntrack match is unavailable"
+
+docker compose --project-directory "${PROJECT_DIR}" --env-file "${ENV_FILE}" \
+  -f "${PROJECT_DIR}/compose.yaml" --profile lab config --quiet || \
+  fail "Docker Compose configuration is invalid"
+
+logger -t honeynet-preflight -- "publication preflight passed for ${SENSOR_BIND_IP}:${PORT}"
+printf 'PASS: konfiguracja, sekrety, adres VPS, Docker i DOCKER-USER.\n'

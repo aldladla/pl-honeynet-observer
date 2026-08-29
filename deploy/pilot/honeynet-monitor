@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROJECT_DIR="${HONEYPOT_PROJECT_DIR:-/opt/pl-honeynet-observer}"
+ENV_FILE="${HONEYPOT_ENV_FILE:-${PROJECT_DIR}/.env}"
+FIREWALL_GATE="${HONEYPOT_FIREWALL_GATE:-/usr/local/sbin/honeynet-firewall-gate}"
+BASELINE="${HONEYPOT_BASELINE:-/usr/local/sbin/honeynet-baseline}"
+DISK_LIMIT_PERCENT="${HONEYPOT_DISK_LIMIT_PERCENT:-80}"
+CPU_LIMIT_PERCENT="${HONEYPOT_CPU_LIMIT_PERCENT:-95}"
+CPU_BREACH_COUNT_LIMIT="${HONEYPOT_CPU_BREACH_COUNT_LIMIT:-3}"
+CPU_STATE_FILE="${HONEYPOT_CPU_STATE_FILE:-/var/lib/honeynet/monitor-cpu.state}"
+MEMORY_LIMIT_PERCENT="${HONEYPOT_MEMORY_LIMIT_PERCENT:-90}"
+CAPTURE_LIMIT_BYTES="${COWRIE_DOWNLOAD_LIMIT_SIZE_BYTES:-16777216}"
+QUARANTINE_LIMIT_BYTES="${HONEYPOT_QUARANTINE_LIMIT_BYTES:-2147483648}"
+QUARANTINE_WARN_PERCENT="${HONEYPOT_QUARANTINE_WARN_PERCENT:-70}"
+
+fail() {
+  logger -t honeynet-monitor -- "$*"
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || fail "monitor requires root"
+[[ -f "${PROJECT_DIR}/compose.yaml" ]] || fail "compose.yaml not found"
+[[ -f "${ENV_FILE}" ]] || fail "private environment file not found"
+[[ -x "${FIREWALL_GATE}" ]] || fail "firewall gate is not installed"
+[[ -x "${BASELINE}" ]] || fail "baseline checker is not installed"
+command -v docker >/dev/null 2>&1 || fail "docker CLI is unavailable"
+command -v curl >/dev/null 2>&1 || fail "curl is unavailable"
+[[ "${DISK_LIMIT_PERCENT}" =~ ^[0-9]+$ ]] || fail "disk limit must be numeric"
+(( DISK_LIMIT_PERCENT >= 50 && DISK_LIMIT_PERCENT <= 95 )) || \
+  fail "disk limit must be between 50 and 95"
+for limit in CPU_LIMIT_PERCENT MEMORY_LIMIT_PERCENT; do
+  value="${!limit}"
+  [[ "${value}" =~ ^[0-9]+$ ]] || fail "${limit} must be numeric"
+  (( value >= 50 && value <= 100 )) || fail "${limit} must be between 50 and 100"
+done
+[[ "${CPU_BREACH_COUNT_LIMIT}" =~ ^[0-9]+$ ]] || \
+  fail "CPU breach count limit must be numeric"
+(( CPU_BREACH_COUNT_LIMIT >= 2 && CPU_BREACH_COUNT_LIMIT <= 10 )) || \
+  fail "CPU breach count limit must be between 2 and 10"
+for variable in CAPTURE_LIMIT_BYTES QUARANTINE_LIMIT_BYTES \
+  QUARANTINE_WARN_PERCENT; do
+  value="${!variable}"
+  [[ "${value}" =~ ^[0-9]+$ ]] || fail "${variable} must be numeric"
+done
+(( CAPTURE_LIMIT_BYTES >= 1048576 && CAPTURE_LIMIT_BYTES <= 67108864 )) || \
+  fail "capture limit must be between 1 MiB and 64 MiB"
+(( QUARANTINE_LIMIT_BYTES >= 134217728 && QUARANTINE_LIMIT_BYTES <= 17179869184 )) || \
+  fail "quarantine limit must be between 128 MiB and 16 GiB"
+(( QUARANTINE_LIMIT_BYTES > CAPTURE_LIMIT_BYTES )) || \
+  fail "quarantine limit must exceed the single-sample capture limit"
+(( QUARANTINE_WARN_PERCENT >= 50 && QUARANTINE_WARN_PERCENT <= 95 )) || \
+  fail "quarantine warning percent must be between 50 and 95"
+
+compose=(docker compose --project-directory "${PROJECT_DIR}" --env-file "${ENV_FILE}" \
+  -f "${PROJECT_DIR}/compose.yaml" --profile lab)
+running="$("${compose[@]}" ps --status running --services)"
+for service in db app cowrie collector retention ssh-gateway; do
+  grep -Fxq "${service}" <<<"${running}" || fail "required service is not running: ${service}"
+done
+
+"${BASELINE}" verify >/dev/null || fail "code, configuration, or image baseline changed"
+
+curl --fail --silent --show-error --max-time 3 \
+  http://127.0.0.1:8000/health >/dev/null || fail "API/database readiness failed"
+"${compose[@]}" exec -T collector honeynet collector-health \
+  /data/cowrie.cursor.json --max-age 30 >/dev/null || fail "collector heartbeat is stale"
+
+configured_capture_limit="$("${compose[@]}" exec -T cowrie \
+  /cowrie/cowrie-env/bin/python -c \
+  'import os; print(os.environ.get("COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE", ""))')"
+[[ "${configured_capture_limit}" == "${CAPTURE_LIMIT_BYTES}" ]] || \
+  fail "Cowrie capture limit differs from the approved environment"
+
+read -r quarantine_bytes quarantine_files <<<"$("${compose[@]}" exec -T cowrie \
+  /cowrie/cowrie-env/bin/python -c \
+  "from pathlib import Path; root=Path('/cowrie/cowrie-git/var/lib/cowrie/downloads'); files=[p for p in root.iterdir() if p.is_file()]; print(sum(p.stat().st_size for p in files), len(files))")"
+[[ "${quarantine_bytes}" =~ ^[0-9]+$ ]] || fail "cannot determine quarantine size"
+[[ "${quarantine_files}" =~ ^[0-9]+$ ]] || fail "cannot determine quarantine file count"
+(( quarantine_bytes < QUARANTINE_LIMIT_BYTES )) || \
+  fail "quarantine size ${quarantine_bytes} bytes reached limit ${QUARANTINE_LIMIT_BYTES}"
+quarantine_warn_bytes=$((QUARANTINE_LIMIT_BYTES * QUARANTINE_WARN_PERCENT / 100))
+if (( quarantine_bytes >= quarantine_warn_bytes )); then
+  logger -t honeynet-monitor -- \
+    "quarantine warning: bytes=${quarantine_bytes} files=${quarantine_files} limit=${QUARANTINE_LIMIT_BYTES}"
+  printf 'WARN: kwarantanna %s/%s bajtow, plikow: %s.\n' \
+    "${quarantine_bytes}" "${QUARANTINE_LIMIT_BYTES}" "${quarantine_files}"
+fi
+
+app_binding="$("${compose[@]}" port app 8000)"
+case "${app_binding}" in
+  127.0.0.1:*|'[::1]':*) ;;
+  *) fail "operator panel is not bound to loopback: ${app_binding}" ;;
+esac
+
+require_sensor_networks() {
+  local service="$1"
+  local label="$2"
+  local expected_count="$3"
+  shift 3
+  local container_id networks network_count
+
+  container_id="$("${compose[@]}" ps -q "${service}")"
+  networks="$(docker inspect --format \
+    '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' \
+    "${container_id}")"
+  network_count="$(grep -Ec '.' <<<"${networks}")"
+  [[ "${network_count}" -eq "${expected_count}" ]] || \
+    fail "${label} has unexpected network attachments"
+  for expected in "$@"; do
+    grep -Eq "(^|_)${expected}$" <<<"${networks}" || \
+      fail "${label} is missing expected network: ${expected}"
+  done
+}
+
+require_sensor_networks cowrie Cowrie 1 sensor-lab
+require_sensor_networks ssh-gateway "SSH gateway" 2 sensor-lab sensor-ingress
+
+"${FIREWALL_GATE}" status >/dev/null || fail "public sensor firewall gate is not open"
+
+disk_usage="$(df -P "${PROJECT_DIR}" | awk 'NR == 2 {gsub(/%/, "", $5); print $5}')"
+[[ "${disk_usage}" =~ ^[0-9]+$ ]] || fail "cannot determine disk usage"
+(( disk_usage < DISK_LIMIT_PERCENT )) || \
+  fail "disk usage ${disk_usage}% reached limit ${DISK_LIMIT_PERCENT}%"
+
+container_ids=()
+for service in db app cowrie collector retention ssh-gateway; do
+  container_ids+=("$("${compose[@]}" ps -q "${service}")")
+done
+stats="$(docker stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemPerc}}' \
+  "${container_ids[@]}")"
+install -d -m 0700 "$(dirname "${CPU_STATE_FILE}")"
+cpu_state_temporary="$(mktemp "${CPU_STATE_FILE}.tmp.XXXXXX")"
+chmod 0600 "${cpu_state_temporary}"
+trap 'rm -f "${cpu_state_temporary}"' EXIT
+cpu_failure=""
+while IFS='|' read -r container_name cpu memory; do
+  cpu="${cpu%%%}"
+  memory="${memory%%%}"
+  [[ "${cpu}" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "invalid CPU metric for ${container_name}"
+  [[ "${memory}" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "invalid memory metric for ${container_name}"
+  if awk -v value="${cpu}" -v limit="${CPU_LIMIT_PERCENT}" \
+    'BEGIN {exit !(value >= limit)}'; then
+    previous_count=0
+    if [[ -f "${CPU_STATE_FILE}" ]]; then
+      previous_count="$(awk -F'|' -v name="${container_name}" \
+        '$1 == name {print $2; exit}' "${CPU_STATE_FILE}")"
+      [[ "${previous_count}" =~ ^[0-9]+$ ]] || previous_count=0
+    fi
+    cpu_breach_count=$((previous_count + 1))
+    printf '%s|%s\n' "${container_name}" "${cpu_breach_count}" \
+      >>"${cpu_state_temporary}"
+    if (( cpu_breach_count >= CPU_BREACH_COUNT_LIMIT )); then
+      cpu_failure="CPU ${cpu}% reached limit ${CPU_LIMIT_PERCENT}% for ${container_name} in ${cpu_breach_count} consecutive checks"
+    else
+      logger -t honeynet-monitor -- \
+        "CPU warning ${cpu}% for ${container_name}; consecutive check ${cpu_breach_count}/${CPU_BREACH_COUNT_LIMIT}"
+      printf 'WARN: CPU %s%% dla %s; kolejne przekroczenie %s/%s.\n' \
+        "${cpu}" "${container_name}" "${cpu_breach_count}" \
+        "${CPU_BREACH_COUNT_LIMIT}"
+    fi
+  fi
+  if awk -v value="${memory}" -v limit="${MEMORY_LIMIT_PERCENT}" \
+    'BEGIN {exit !(value >= limit)}'; then
+    fail "memory ${memory}% reached limit ${MEMORY_LIMIT_PERCENT}% for ${container_name}"
+  fi
+done <<<"${stats}"
+mv -f "${cpu_state_temporary}" "${CPU_STATE_FILE}"
+trap - EXIT
+[[ -z "${cpu_failure}" ]] || fail "${cpu_failure}"
+
+logger -t honeynet-monitor -- \
+  "pilot healthy; disk=${disk_usage}% quarantine=${quarantine_bytes}/${QUARANTINE_LIMIT_BYTES} files=${quarantine_files} resources=ok baseline=ok"
+printf 'OK: uslugi, baza, heartbeat, sieci, firewall, baseline i zasoby sa poprawne; kwarantanna=%s/%s B, pliki=%s.\n' \
+  "${quarantine_bytes}" "${QUARANTINE_LIMIT_BYTES}" "${quarantine_files}"
