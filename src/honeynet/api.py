@@ -134,7 +134,7 @@ def dashboard_artifact_queue(
     session: Annotated[Session, Depends(database_session)],
 ) -> dict:
     records = EventRepository(session).artifact_events()
-    return artifact_queue(records)
+    return artifact_queue(records, get_settings().cowrie_artifact_root)
 
 
 @app.get("/api/dashboard/artifacts/{artifact_id}/manifest")
@@ -148,6 +148,7 @@ def dashboard_artifact_manifest(
         artifact_id,
         get_settings().report_pseudonym_key,
         geoip_resolver().lookup,
+        get_settings().cowrie_artifact_root,
     )
     if manifest is None:
         raise HTTPException(status_code=404, detail="Artifact not found")

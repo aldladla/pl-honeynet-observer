@@ -72,11 +72,7 @@ def _candidate_summary(
     pseudonym_key: str,
 ) -> dict[str, Any]:
     tools = sorted(
-        {
-            tool
-            for event in events
-            if (tool := _safe_text(event.data.get("tool"), maximum=64))
-        }
+        {tool for event in events if (tool := _safe_text(event.data.get("tool"), maximum=64))}
     )
     outcomes = sorted(
         {
@@ -89,12 +85,11 @@ def _candidate_summary(
         {
             filename
             for event in events
-            if (
-                filename := _safe_text(
-                    event.data.get("destination_filename"), maximum=512
-                )
-            )
+            if (filename := _safe_text(event.data.get("destination_filename"), maximum=512))
         }
+    )
+    phases = sorted(
+        {phase for event in events if (phase := _safe_text(event.data.get("phase"), maximum=16))}
     )
     return {
         "candidate_id": _candidate_id(url, pseudonym_key),
@@ -107,6 +102,9 @@ def _candidate_summary(
         "tools": tools,
         "outcomes": outcomes,
         "destination_filenames": filenames[:5],
+        "phases": phases,
+        "execution_intended": any(event.data.get("execution_intended") is True for event in events),
+        "cleanup_intended": any(event.data.get("cleanup_intended") is True for event in events),
         "workflow_state": "awaiting_manual_review",
         "intake_active_24_7": True,
         "content_retrieved": False,
@@ -158,16 +156,16 @@ def acquisition_candidate_manifest(
                     "sensor_id": event.sensor_id,
                     "session_id": event.session_id,
                     "source": pseudonymize_ip(event.source_ip, pseudonym_key),
-                    "geo": _geo_projection(geoip_lookup(event.source_ip))
-                    if geoip_lookup
-                    else None,
+                    "geo": _geo_projection(geoip_lookup(event.source_ip)) if geoip_lookup else None,
                     "scheme": _scheme(url),
                     "tool": _safe_text(event.data.get("tool"), maximum=64),
-                    "outcome": _safe_text(event.data.get("outcome"), maximum=16)
-                    or "unknown",
+                    "outcome": _safe_text(event.data.get("outcome"), maximum=16) or "unknown",
                     "destination_filename": _safe_text(
                         event.data.get("destination_filename"), maximum=512
                     ),
+                    "phase": _safe_text(event.data.get("phase"), maximum=16),
+                    "execution_intended": event.data.get("execution_intended") is True,
+                    "cleanup_intended": event.data.get("cleanup_intended") is True,
                 }
             )
         return {

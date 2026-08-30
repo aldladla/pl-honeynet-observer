@@ -39,6 +39,8 @@ services:
       - /data/cowrie.cursor.json
       - --interval
       - "2"
+      - --artifact-root
+      - /cowrie-data/lib/cowrie/downloads
     environment:
       DATABASE_URL: postgresql+psycopg://honeynet:${POSTGRES_PASSWORD:-local-development-only}@db:5432/honeynet
     depends_on:
@@ -141,6 +143,7 @@ services:
       DASHBOARD_EVENT_LIMIT: ${DASHBOARD_EVENT_LIMIT:-50000}
       GEOIP_COUNTRY_DB_PATH: ${GEOIP_COUNTRY_DB_PATH:-/geoip/server-country-ipv4.mmdb}
       GEOIP_ASN_DB_PATH: ${GEOIP_ASN_DB_PATH:-/geoip/origin-asn-ipv4.mmdb}
+      COWRIE_ARTIFACT_ROOT: /cowrie-data/lib/cowrie/downloads
     depends_on:
       db:
         condition: service_healthy
@@ -281,11 +284,13 @@ services:
       COWRIE_OUTPUT_JSONLOG_EPOCH_TIMESTAMP: "false"
     volumes:
       - cowrie-var:/cowrie/cowrie-git/var
-      # The command registry is the unmodified v3.0.12 registry plus one
-      # final, local module that overrides only wget/curl. The override never
-      # opens a socket; it creates a harmless per-session virtual placeholder.
+      # The command registry mirrors v3.0.12 and loads the local no-network
+      # transfer, discovery-response and narrow shell-probe emulators last.
       - ./deploy/cowrie-persona/commands/__init__.py:/cowrie/cowrie-git/src/cowrie/commands/__init__.py:ro
       - ./deploy/cowrie-persona/commands/safe_transfer.py:/cowrie/cowrie-git/src/cowrie/commands/safe_transfer.py:ro
+      - ./deploy/cowrie-persona/commands/persona_v2.py:/cowrie/cowrie-git/src/cowrie/commands/persona_v2.py:ro
+      - ./deploy/cowrie-persona/commands/safe_cat.py:/cowrie/cowrie-git/src/cowrie/commands/safe_cat.py:ro
+      - ./deploy/cowrie-persona/commands/safe_shell.py:/cowrie/cowrie-git/src/cowrie/commands/safe_shell.py:ro
       - ./deploy/cowrie-persona/honeyfs:/cowrie/cowrie-git/persona/honeyfs:ro
       - ./deploy/cowrie-persona/safe-placeholder.sh:/cowrie/cowrie-git/persona/safe-placeholder.sh:ro
     networks:

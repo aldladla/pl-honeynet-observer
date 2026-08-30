@@ -6,6 +6,7 @@ import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 
+from honeynet.artifact_state import is_meaningful_artifact
 from honeynet.database import StoredEvent
 from honeynet.reporting import as_utc
 
@@ -74,7 +75,7 @@ COMMAND_RULES = (
             "Polecenie używa typowego narzędzia transferu. Sensor rejestruje wyłącznie "
             "metadane i nie wykonuje pobranego pliku."
         ),
-        patterns=_patterns(r"(?:^|[;&|]\s*)(?:curl|wget|tftp|ftpget)\b"),
+        patterns=_patterns(r"\b(?:curl|wget|tftp|ftpget|scp|sftp)\b"),
     ),
     CommandRule(
         category="execution_preparation",
@@ -121,11 +122,19 @@ COMMAND_RULES = (
             "lub zasobach przed podjęciem dalszych działań."
         ),
         patterns=_patterns(
-            r"(?:^|[;&|]\s*)(?:uname|id|whoami|hostname|lscpu|free|df|mount|ps|last|w|who)\b",
+            r"(?:^|[;&|($]\s*)(?:(?:/[a-z0-9_.+-]+)+/)?(?:uname|id|whoami|hostname|lscpu|free|df|mount|ps|last|w|who)\b",
             r"(?:^|[;&|]\s*)cat\b[^\n]*/etc/(?:os-release|issue|passwd)\b",
             r"(?:^|[;&|]\s*)(?:env|printenv)\b",
         ),
     ),
+)
+
+
+HOST_CAPABILITY_SIGNALS = _patterns(
+    r"(?:^|[;&|($]\s*)(?:(?:/[a-z0-9_.+-]+)+/)?(?:uname|busybox\s+uname)\b",
+    r"(?:/proc/(?:uptime|cpuinfo)|\b(?:uptime|nproc|lscpu)\b)",
+    r"(?:\blspci\b|\bnvidia-smi\b|\bGPU:)",
+    r"(?:SHELL_BEHAVIOR|execute_err=|chmod\s+\+x)",
 )
 
 
@@ -170,6 +179,36 @@ def analyze_session(events: list[StoredEvent]) -> list[Detection]:
 
     session_id = events[0].session_id
     detections: list[Detection] = []
+    for event in events:
+        if event.event_type != "command_input":
+            continue
+        command = event.data.get("command")
+        if not isinstance(command, str):
+            continue
+        signal_count = sum(bool(pattern.search(command)) for pattern in HOST_CAPABILITY_SIGNALS)
+        if signal_count >= 3:
+            detections.append(
+                Detection(
+                    detection_id=f"{session_id}:host_capability_probe",
+                    category="host_capability_probe",
+                    severity="high",
+                    confidence="high",
+                    score=84,
+                    title="Ocena możliwości hosta",
+                    summary=(
+                        "Źródło łączy rozpoznanie systemu i zasobów z testem możliwości "
+                        "utworzenia lub uruchomienia pliku. Może to poprzedzać dobór payloadu."
+                    ),
+                    evidence=(
+                        DetectionEvidence(
+                            event_id=event.event_id,
+                            timestamp=_timestamp(event.timestamp),
+                            value=command[:500],
+                        ),
+                    ),
+                )
+            )
+            break
     for rule in COMMAND_RULES:
         evidence = _command_evidence(events, rule)
         if evidence:
@@ -201,8 +240,18 @@ def analyze_session(events: list[StoredEvent]) -> list[Detection]:
             )
         )
 
-    artifact_evidence = _event_evidence(events, "artifact_captured", "Metadane artefaktu")
-    if artifact_evidence:
+    artifact_events = [event for event in events if event.event_type == "artifact_captured"]
+    meaningful_artifacts = [
+        event for event in artifact_events if is_meaningful_artifact(event.data)
+    ]
+    incomplete_artifacts = [
+        event for event in artifact_events if not is_meaningful_artifact(event.data)
+    ]
+    if meaningful_artifacts:
+        artifact_evidence = tuple(
+            DetectionEvidence(event.event_id, _timestamp(event.timestamp), "Metadane artefaktu")
+            for event in meaningful_artifacts[:5]
+        )
         detections.append(
             Detection(
                 detection_id=f"{session_id}:artifact_captured",
@@ -216,6 +265,30 @@ def analyze_session(events: list[StoredEvent]) -> list[Detection]:
                     "przez pipeline analityczny."
                 ),
                 evidence=artifact_evidence,
+            )
+        )
+    if incomplete_artifacts:
+        incomplete_evidence = tuple(
+            DetectionEvidence(
+                event.event_id,
+                _timestamp(event.timestamp),
+                "Pusty lub niedokończony transfer",
+            )
+            for event in incomplete_artifacts[:5]
+        )
+        detections.append(
+            Detection(
+                detection_id=f"{session_id}:empty_upload",
+                category="empty_upload",
+                severity="low",
+                confidence="high",
+                score=18,
+                title="Pusty lub niedokończony upload",
+                summary=(
+                    "Sensor zarejestrował próbę przesłania, ale nie otrzymał użytecznej "
+                    "zawartości. Rekord nie jest traktowany jako przechwycony payload."
+                ),
+                evidence=incomplete_evidence,
             )
         )
 

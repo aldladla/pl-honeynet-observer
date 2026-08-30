@@ -22,9 +22,18 @@ def _safe_detail(event: StoredEvent) -> str:
     allowed = {
         "success",
         "command",
+        "stdout",
+        "stderr",
+        "exit_code",
         "url",
         "sha256",
         "filename",
+        "size_bytes",
+        "capture_status",
+        "destination_filename",
+        "phase",
+        "execution_intended",
+        "cleanup_intended",
         "reason",
     }
     detail = {key: value for key, value in event.data.items() if key in allowed}

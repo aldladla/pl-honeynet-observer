@@ -106,3 +106,27 @@ def test_collector_health_distinguishes_stale_and_invalid_heartbeat(tmp_path: Pa
     invalid = check_collector_state(state_path, max_age_seconds=30, now=now)
     assert invalid.healthy is False
     assert invalid.status == "heartbeat_invalid"
+
+
+def test_collector_enriches_artifact_size_using_read_only_metadata(tmp_path: Path) -> None:
+    collector, log_path, state_path, sessions = collector_for(tmp_path)
+    artifact_root = tmp_path / "downloads"
+    artifact_root.mkdir()
+    sha256 = "c" * 64
+    (artifact_root / sha256).write_bytes(b"synthetic-metadata-only")
+    collector = CowrieFileCollector(log_path, state_path, sessions, artifact_root)
+    log_path.write_text(
+        '{"eventid":"cowrie.session.file_upload","sensor":"pl-lab-01",'
+        '"timestamp":"2026-08-29T10:00:00Z","session":"sized-upload",'
+        f'"src_ip":"192.0.2.1","filename":"sample.bin","shasum":"{sha256}"}}\n',
+        encoding="utf-8",
+    )
+
+    result = collector.poll_once()
+
+    assert result.events_inserted == 1
+    with sessions() as session:
+        event = session.scalar(select(StoredEvent))
+    assert event is not None
+    assert event.data["size_bytes"] == 23
+    assert event.data["capture_status"] == "complete"

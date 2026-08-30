@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shlex
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import PurePosixPath
 from typing import Any
@@ -14,6 +16,12 @@ from urllib.parse import urlsplit
 
 from honeynet.models import Event, EventType
 from honeynet.privacy import redact_text, sanitize_json
+
+EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+URL_PATTERN = re.compile(r"(?P<url>(?:https?|ftp|tftp)://[^\s'\";|&)]+)", re.IGNORECASE)
+SCP_SOURCE_PATTERN = re.compile(
+    r"^(?:(?P<user>[^@\s:]+)@)?(?P<host>\[[^]]+\]|[^:\s]+):(?P<path>.+)$"
+)
 
 
 def _event_id(record: Mapping[str, Any], projection: str) -> str:
@@ -98,6 +106,138 @@ def _artifact_role(filename: str | None) -> str:
     return "unknown"
 
 
+def _artifact_metadata(record: Mapping[str, Any]) -> tuple[int | None, str]:
+    raw_size = record.get("size")
+    size = raw_size if isinstance(raw_size, int) and not isinstance(raw_size, bool) else None
+    sha256 = str(record.get("shasum", "")).lower()
+    if sha256 == EMPTY_SHA256:
+        return 0, "empty_upload"
+    if size == 0:
+        return 0, "incomplete_transfer"
+    if size is not None:
+        return size, "complete"
+    return None, "unknown"
+
+
+def _shell_tokens(fragment: str) -> list[str]:
+    try:
+        return shlex.split(fragment, comments=False, posix=True)
+    except ValueError:
+        return fragment.split()
+
+
+def _has_cleanup(command: str) -> bool:
+    return bool(re.search(r"(?:^|[;&|]\s*)rm\s+(?:-[A-Za-z]+\s+)*[^;&|]+", command))
+
+
+def _execution_targets(command: str) -> set[str]:
+    targets: set[str] = set()
+    for match in re.finditer(
+        r"(?:^|[;&|]\s*)(?:chmod\s+\+x\s+)?(?:(?:\./|/)?(?P<target>[\w./-]+))",
+        command,
+    ):
+        target = PurePosixPath(match.group("target")).name
+        if target and target not in {"chmod", "rm", "wget", "curl", "scp"}:
+            targets.add(target)
+    for match in re.finditer(r"\|\s*(?:ba|z|k)?sh(?:\s|$)", command):
+        if match:
+            targets.add("<stdin>")
+    return targets
+
+
+def _scp_request(command: str) -> dict[str, Any] | None:
+    match = re.search(
+        r"(?:^|[;&|]\s*)(?:if\s+)?scp\s+(?P<body>.*?)(?=\s*(?:;|&&|\|\||$))",
+        command,
+    )
+    if not match:
+        return None
+    tokens = _shell_tokens(match.group("body"))
+    operands: list[str] = []
+    skip_next = False
+    options_with_value = {"-B", "-c", "-D", "-F", "-i", "-J", "-l", "-o", "-P", "-S", "-X"}
+    for token in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in options_with_value:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        operands.append(token)
+    if len(operands) < 2:
+        return None
+    source, destination = operands[-2], operands[-1]
+    parsed = SCP_SOURCE_PATTERN.match(source)
+    if not parsed:
+        return None
+    host = parsed.group("host").strip("[]")
+    remote_path = parsed.group("path").lstrip("/")
+    safe_url = f"scp://{host}/{remote_path}"
+    filename = PurePosixPath(destination.replace("\\", "/")).name or None
+    execution_targets = _execution_targets(command)
+    return {
+        "url": redact_text(safe_url),
+        "tool": "scp",
+        "outcome": "unknown",
+        "destination_filename": redact_text(filename)[:512] if filename else None,
+        "phase": "primary",
+        "execution_intended": bool(filename and filename in execution_targets),
+        "cleanup_intended": _has_cleanup(command),
+    }
+
+
+def _http_requests(command: str) -> list[dict[str, Any]]:
+    requests: list[dict[str, Any]] = []
+    execution_targets = _execution_targets(command)
+    cleanup = _has_cleanup(command)
+    for match in re.finditer(
+        r"(?:^|[;&|(]\s*)(?P<tool>curl|wget)\b(?P<body>[^;&|)]*)", command, re.IGNORECASE
+    ):
+        tool = match.group("tool").lower()
+        body = match.group("body")
+        url_match = URL_PATTERN.search(body)
+        if not url_match:
+            continue
+        tokens = _shell_tokens(body)
+        destination = None
+        output_flags = {"-o", "--output"} if tool == "curl" else {"-O", "-o", "--output-document"}
+        for index, token in enumerate(tokens[:-1]):
+            if token in output_flags:
+                destination = PurePosixPath(tokens[index + 1].replace("\\", "/")).name
+                break
+        piped_to_shell = bool(
+            re.search(r"\|\s*(?:ba|z|k)?sh(?:\s|$)", command[match.start() :], re.IGNORECASE)
+        )
+        requests.append(
+            {
+                "url": redact_text(url_match.group("url")),
+                "tool": tool,
+                "outcome": "unknown",
+                "destination_filename": redact_text(destination)[:512] if destination else None,
+                "phase": "fallback"
+                if re.search(r"\b(?:else|fallback)\b|\|\|", command[: match.start()], re.IGNORECASE)
+                else "primary",
+                "execution_intended": piped_to_shell
+                or bool(destination and destination in execution_targets),
+                "cleanup_intended": cleanup,
+            }
+        )
+    return requests
+
+
+def _compound_transfer_requests(command: str) -> list[dict[str, Any]]:
+    requests: list[dict[str, Any]] = []
+    if request := _scp_request(command):
+        requests.append(request)
+    requests.extend(_http_requests(command))
+    # Simple transfer commands already produce native Cowrie transfer events.
+    # This projection is deliberately reserved for compound fallback chains
+    # that Cowrie otherwise records only as one opaque command_input.
+    return requests if len(requests) >= 2 else []
+
+
 def normalize_cowrie(record: Mapping[str, Any]) -> list[Event]:
     """Project one Cowrie JSON record into zero, one, or two canonical events."""
 
@@ -161,6 +301,14 @@ def normalize_cowrie(record: Mapping[str, Any]) -> list[Event]:
             event = _base(record, EventType.COMMAND_INPUT, "command")
             event["data"] = {"command": redact_text(command)}
             projected.append(event)
+            for index, request_data in enumerate(_compound_transfer_requests(command)):
+                request = _base(
+                    record,
+                    EventType.FILE_DOWNLOAD_REQUESTED,
+                    f"command-transfer-{index}",
+                )
+                request["data"] = request_data
+                projected.append(request)
 
     elif source_type == "cowrie.command.failed":
         command = record.get("input")
@@ -169,6 +317,21 @@ def normalize_cowrie(record: Mapping[str, Any]) -> list[Event]:
             event["data"] = {
                 "command": redact_text(command),
                 "reason": redact_text(str(record.get("message", "command failed")))[:512],
+            }
+            projected.append(event)
+
+    elif source_type == "cowrie.command.output.emulated":
+        command = record.get("input")
+        tool = record.get("tool")
+        if isinstance(command, str) and command and isinstance(tool, str) and tool:
+            event = _base(record, EventType.COMMAND_OUTPUT, "command-output-emulated")
+            event["data"] = {
+                "command": redact_text(command),
+                "tool": redact_text(tool)[:64],
+                "stdout": redact_text(str(record.get("stdout", "")))[:8192],
+                "stderr": redact_text(str(record.get("stderr", "")))[:8192],
+                "exit_code": int(record.get("exit_code", 0)),
+                "emulated": True,
             }
             projected.append(event)
 
@@ -210,25 +373,29 @@ def normalize_cowrie(record: Mapping[str, Any]) -> list[Event]:
             projected.append(request)
         if record.get("shasum"):
             filename = _safe_filename(record)
+            size_bytes, capture_status = _artifact_metadata(record)
             artifact = _base(record, EventType.ARTIFACT_CAPTURED, "download-artifact")
             artifact["data"] = {
                 "sha256": record["shasum"],
-                "size_bytes": record.get("size"),
+                "size_bytes": size_bytes,
                 "filename": filename,
                 "origin": origin,
                 "role": _artifact_role(filename),
+                "capture_status": capture_status,
             }
             projected.append(artifact)
 
     elif source_type == "cowrie.session.file_upload" and record.get("shasum"):
         filename = _safe_filename(record)
+        size_bytes, capture_status = _artifact_metadata(record)
         event = _base(record, EventType.ARTIFACT_CAPTURED, "upload-artifact")
         event["data"] = {
             "sha256": record["shasum"],
-            "size_bytes": record.get("size"),
+            "size_bytes": size_bytes,
             "filename": filename,
             "origin": "direct_upload",
             "role": _artifact_role(filename),
+            "capture_status": capture_status,
         }
         projected.append(event)
 

@@ -1,0 +1,1 @@
+{"eventid":"cowrie.command.output.emulated","sensor":"pl-lab-01","timestamp":"2026-08-29T14:00:00Z","session":"persona-output-001","src_ip":"192.0.2.77","src_port":42222,"dst_ip":"192.0.2.10","dst_port":22,"tool":"nproc","input":"nproc","stdout":"8\n","stderr":"","exit_code":0,"emulated":true}

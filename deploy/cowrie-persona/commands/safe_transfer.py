@@ -137,6 +137,19 @@ class _SafeTransfer(HoneyPotCommand):
             simulated=True,
         )
 
+    def _record_output(self, stdout: str = "", stderr: str = "", exit_code: int = 0) -> None:
+        command = " ".join([self.tool, *self.args])
+        self.protocol.events.dispatch(
+            "cowrie.command.output.emulated",
+            "Emulated %(tool)s completed with exit code %(exit_code)d",
+            tool=self.tool,
+            input=command,
+            stdout=stdout[:8192],
+            stderr=stderr[:8192],
+            exit_code=exit_code,
+            emulated=True,
+        )
+
     def _create_virtual_file(self, target: str) -> str | None:
         resolved = self.fs.resolve_path(target, self.cwd)
         parent = posixpath.dirname(resolved)
@@ -170,36 +183,46 @@ class _SafeTransfer(HoneyPotCommand):
     def call(self) -> None:
         if any(arg in {"-V", "--version"} for arg in self.args):
             self.write(self.version_text)
+            self._record_output(stdout=self.version_text)
             return
         if any(arg in {"-h", "--help"} for arg in self.args):
-            self.write(f"Usage: {self.tool} [options] URL\n")
+            output = f"Usage: {self.tool} [options] URL\n"
+            self.write(output)
+            self._record_output(stdout=output)
             return
         intent = self.parse()
         if intent is None:
-            self.errorWrite(f"{self.tool}: missing or invalid URL\n")
+            error = f"{self.tool}: missing or invalid URL\n"
+            self.errorWrite(error)
             self.exit_code = 1
+            self._record_output(stderr=error, exit_code=1)
             return
 
         if intent.output in {None, "-"}:
             self.writeBytes(PLACEHOLDER_BYTES)
             self._record(intent, "stdout")
+            self._record_output(stdout=PLACEHOLDER_BYTES.decode("ascii"))
             return
 
         destination = self._create_virtual_file(intent.output)
         if destination is None:
             return
         self._record(intent, destination)
+        output = ""
         if not intent.quiet:
             if self.tool == "wget":
-                self.errorWrite(f"Saving to: '{destination}'\n")
-                self.errorWrite(
+                output = f"Saving to: '{destination}'\n"
+                output += (
                     f"'{destination}' saved [{len(PLACEHOLDER_BYTES)}/{len(PLACEHOLDER_BYTES)}]\n"
                 )
+                self.errorWrite(output)
             else:
-                self.errorWrite(
+                output = (
                     f"100 {len(PLACEHOLDER_BYTES):5d}  100 {len(PLACEHOLDER_BYTES):5d} "
                     "   0     0   1700      0 --:--:-- --:--:-- --:--:--  1700\n"
                 )
+                self.errorWrite(output)
+        self._record_output(stderr=output)
 
 
 class Command_safe_wget(_SafeTransfer):

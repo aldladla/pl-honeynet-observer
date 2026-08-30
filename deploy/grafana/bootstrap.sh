@@ -26,6 +26,27 @@ ALTER ROLE grafana_reader NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 
 CREATE SCHEMA IF NOT EXISTS grafana_safe AUTHORIZATION honeynet;
 
+CREATE OR REPLACE VIEW grafana_safe.session_event_facts
+WITH (security_barrier = true)
+AS
+SELECT
+    event_id,
+    "timestamp" AS observed_at,
+    sensor_id,
+    session_id,
+    event_type,
+    CASE
+        WHEN event_type <> 'artifact_captured' THEN false
+        WHEN lower(coalesce(data->>'sha256', '')) =
+            'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+            THEN true
+        WHEN coalesce(data->>'capture_status', '') IN ('empty_upload', 'incomplete_transfer')
+            THEN true
+        WHEN coalesce(data->>'size_bytes', '') = '0' THEN true
+        ELSE false
+    END AS incomplete_artifact
+FROM public.events;
+
 CREATE OR REPLACE VIEW grafana_safe.event_stream
 WITH (security_barrier = true)
 AS
@@ -35,7 +56,7 @@ SELECT
     sensor_id,
     session_id,
     event_type
-FROM public.events;
+FROM grafana_safe.session_event_facts;
 
 CREATE OR REPLACE VIEW grafana_safe.session_summary
 WITH (security_barrier = true)
@@ -53,10 +74,13 @@ WITH session_facts AS (
             WHERE event_type IN ('artifact_captured', 'file_download_requested')
         )::bigint
             AS artifact_count,
-        bool_or(event_type IN ('artifact_captured', 'file_download_requested')) AS has_artifact,
+        bool_or(event_type = 'artifact_captured' AND NOT incomplete_artifact)
+            AS has_captured_artifact,
+        bool_or(event_type = 'artifact_captured' AND incomplete_artifact) AS has_empty_upload,
+        bool_or(event_type = 'file_download_requested') AS has_transfer,
         bool_or(event_type = 'command_input') AS has_command,
         bool_or(event_type = 'login_attempt') AS has_login
-    FROM grafana_safe.event_stream
+    FROM grafana_safe.session_event_facts
     GROUP BY session_id
 )
 SELECT
@@ -70,13 +94,17 @@ SELECT
     login_count,
     artifact_count,
     CASE
-        WHEN has_artifact THEN 92
+        WHEN has_captured_artifact THEN 92
+        WHEN has_transfer THEN 74
+        WHEN has_empty_upload THEN 18
         WHEN has_command THEN 58
         WHEN has_login THEN 28
         ELSE 12
     END::integer AS risk_score,
     CASE
-        WHEN has_artifact THEN 'Artefakt lub transfer'
+        WHEN has_captured_artifact THEN 'Artefakt przechwycony'
+        WHEN has_transfer THEN 'Próba dostarczenia pliku'
+        WHEN has_empty_upload THEN 'Pusty lub niedokończony upload'
         WHEN has_command THEN 'Aktywna sesja poleceń'
         WHEN has_login THEN 'Próba uwierzytelnienia'
         ELSE 'Obserwacja sieciowa'
@@ -85,6 +113,7 @@ FROM session_facts;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM grafana_reader;
 REVOKE ALL PRIVILEGES ON public.events FROM grafana_reader;
+REVOKE ALL PRIVILEGES ON grafana_safe.session_event_facts FROM grafana_reader;
 REVOKE CREATE ON SCHEMA public FROM grafana_reader;
 GRANT CONNECT ON DATABASE honeynet TO grafana_reader;
 GRANT USAGE ON SCHEMA grafana_safe TO grafana_reader;

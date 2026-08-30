@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from honeynet.api import app, database_session
 from honeynet.cowrie import normalize_lines
 from honeynet.dashboard import dashboard_session
-from honeynet.database import Base, build_engine
+from honeynet.database import Base, StoredEvent, build_engine
 from honeynet.repository import EventRepository
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
@@ -59,12 +60,24 @@ def test_dashboard_serves_sanitized_session_trace(tmp_path: Path) -> None:
 
 
 def test_dashboard_deep_link_is_not_limited_to_sessions_in_overview() -> None:
-    script = (
-        Path(__file__).parents[1] / "src" / "honeynet" / "static" / "dashboard.js"
-    ).read_text(encoding="utf-8")
+    script = (Path(__file__).parents[1] / "src" / "honeynet" / "static" / "dashboard.js").read_text(
+        encoding="utf-8"
+    )
 
     assert "hashSession ||" in script
     assert "selectSession(state.activeSessionId" in script
+
+
+def test_dashboard_displays_operator_time_as_fixed_utc_plus_two() -> None:
+    static_root = Path(__file__).parents[1] / "src" / "honeynet" / "static"
+    script = (static_root / "dashboard.js").read_text(encoding="utf-8")
+    page = (static_root / "index.html").read_text(encoding="utf-8")
+
+    assert 'const displayTimeZone = "Etc/GMT-2"' in script
+    assert 'const displayTimeZoneLabel = "UTC+2"' in script
+    assert 'timeZone: "UTC"' not in script
+    assert "Początek UTC+2" in page
+    assert "UTC+2 / kolejność rosnąca" in page
 
 
 def test_dashboard_exposes_metadata_only_artifact_manifest(tmp_path: Path) -> None:
@@ -118,12 +131,8 @@ def test_dashboard_exposes_passive_acquisition_candidate_manifest(tmp_path: Path
         with TestClient(app) as client:
             queue = client.get("/api/dashboard/acquisition-candidates")
             candidate_id = queue.json()["candidates"][0]["candidate_id"]
-            manifest = client.get(
-                f"/api/dashboard/acquisition-candidates/{candidate_id}/manifest"
-            )
-            missing = client.get(
-                "/api/dashboard/acquisition-candidates/candidate-missing/manifest"
-            )
+            manifest = client.get(f"/api/dashboard/acquisition-candidates/{candidate_id}/manifest")
+            missing = client.get("/api/dashboard/acquisition-candidates/candidate-missing/manifest")
     finally:
         app.dependency_overrides.clear()
 
@@ -253,7 +262,34 @@ def test_health_returns_503_without_leaking_database_error() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": {"status": "unhealthy", "database": "unavailable"}
-    }
+    assert response.json() == {"detail": {"status": "unhealthy", "database": "unavailable"}}
     assert "password" not in response.text
+
+
+def test_dashboard_gives_empty_upload_a_low_risk_label() -> None:
+    event = StoredEvent(
+        event_id="empty-upload",
+        event_type="artifact_captured",
+        timestamp=datetime(2026, 8, 29, 9, 0, tzinfo=UTC),
+        sensor_id="test-sensor",
+        session_id="empty-session",
+        source_ip="192.0.2.20",
+        data={
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "size_bytes": 0,
+            "filename": "sshd",
+            "origin": "direct_upload",
+            "role": "unknown",
+            "capture_status": "empty_upload",
+        },
+    )
+
+    payload = dashboard_session([event], "test-key")
+
+    assert payload["risk"] == {
+        "score": 18,
+        "level": "notice",
+        "label": "Pusty lub niedokończony upload",
+    }
+    assert payload["detections"][0]["category"] == "empty_upload"
+    assert payload["timeline"][0]["title"] == "Pusty lub niedokończony upload"

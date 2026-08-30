@@ -34,7 +34,18 @@ def test_grafana_projection_never_exposes_raw_evidence_columns() -> None:
         assert forbidden not in event_view.lower()
 
     assert "REVOKE ALL PRIVILEGES ON public.events FROM grafana_reader" in bootstrap
+    assert "REVOKE ALL PRIVILEGES ON grafana_safe.session_event_facts" in bootstrap
     assert "GRANT SELECT ON grafana_safe.event_stream" in bootstrap
+    assert "GRANT SELECT ON grafana_safe.session_event_facts" not in bootstrap
+
+
+def test_grafana_scores_empty_uploads_below_real_artifacts() -> None:
+    bootstrap = (GRAFANA / "bootstrap.sh").read_text(encoding="utf-8")
+
+    assert "WHEN has_captured_artifact THEN 92" in bootstrap
+    assert "WHEN has_transfer THEN 74" in bootstrap
+    assert "WHEN has_empty_upload THEN 18" in bootstrap
+    assert "Pusty lub niedokończony upload" in bootstrap
 
 
 def test_grafana_is_loopback_only_and_uses_a_dedicated_reader() -> None:

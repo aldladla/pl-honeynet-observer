@@ -6,6 +6,9 @@ const state = {
   refreshing: false,
 };
 
+const displayTimeZone = "Etc/GMT-2";
+const displayTimeZoneLabel = "UTC+2";
+
 const eventCodes = {
   connection_opened: "CO",
   client_fingerprint: "FP",
@@ -13,6 +16,7 @@ const eventCodes = {
   shell_opened: "SH",
   command_input: "CM",
   command_failed: "CF",
+  command_output: "OU",
   file_download_requested: "DL",
   artifact_captured: "AR",
   connection_closed: "CL",
@@ -33,16 +37,24 @@ const fieldLabels = {
   success: "Wynik",
   terminal: "Terminal",
   command: "Komenda",
+  stdout: "Standardowe wyjście",
+  stderr: "Standardowy błąd",
+  exit_code: "Kod zakończenia",
+  emulated: "Emulacja",
   url: "Adres URL",
   tool: "Narzędzie",
   outcome: "Rezultat",
   destination_filename: "Plik docelowy",
+  phase: "Etap transferu",
+  execution_intended: "Zamiar wykonania",
+  cleanup_intended: "Zamiar usunięcia śladów",
   sha256: "SHA-256",
   size_bytes: "Rozmiar",
   media_type: "Typ pliku",
   filename: "Nazwa pliku",
   origin: "Pochodzenie",
   role: "Rola",
+  capture_status: "Stan przechwycenia",
   reason: "Powód",
   duration_ms: "Czas [ms]",
 };
@@ -77,7 +89,7 @@ function formatDate(value) {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-    timeZone: "UTC",
+    timeZone: displayTimeZone,
   }).format(new Date(value));
 }
 
@@ -87,7 +99,7 @@ function formatTime(value) {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-    timeZone: "UTC",
+    timeZone: displayTimeZone,
   }).format(new Date(value));
 }
 
@@ -131,6 +143,18 @@ function readableValue(field, value) {
       unknown: "wynik nieznany",
     }[value] || String(value);
   }
+  if (field === "phase") return value === "fallback" ? "fallback" : "pierwsza próba";
+  if (field === "execution_intended" || field === "cleanup_intended") {
+    return value ? "tak" : "nie";
+  }
+  if (field === "capture_status") {
+    return {
+      complete: "kompletny",
+      empty_upload: "pusty upload",
+      incomplete_transfer: "niedokończony transfer",
+      unknown: "stan nieznany",
+    }[value] || String(value);
+  }
   return String(value);
 }
 
@@ -164,7 +188,11 @@ function analyticalReading(session) {
   if (detectionTypes.has("honeypot_probe")) {
     return "Źródło nie ograniczyło się do zwykłego rekonesansu. Sprawdzało ślady emulacji lub konteneryzacji, co może oznaczać próbę rozpoznania honeypota. Detekcja pokazuje wykorzystane polecenia, ale nie przesądza, czy test był skuteczny.";
   }
-  if (types.has("artifact_captured")) {
+  const meaningfulArtifact = session.timeline.some(
+    (event) => event.event_type === "artifact_captured"
+      && !["empty_upload", "incomplete_transfer"].includes(event.data.capture_status),
+  );
+  if (meaningfulArtifact) {
     return "Po uzyskaniu interakcji źródło pozostawiło artefakt. Sensor zachował jego metadane; plik nie został uruchomiony. To najsilniejszy sygnał w tej sesji.";
   }
   if (types.has("file_download_requested")) {
@@ -213,7 +241,7 @@ function renderSessions(sessions) {
           <span class="session-source">${escapeHtml(session.source)}</span>
           ${session.geo ? `<span class="session-location">${escapeHtml(sessionGeoLabel(session.geo))}</span>` : ""}
           <span class="session-meta">
-            <span>${escapeHtml(formatDate(session.started_at))} UTC</span>
+            <span>${escapeHtml(formatDate(session.started_at))} ${displayTimeZoneLabel}</span>
             <span>${escapeHtml(session.event_count)} zd.</span>
             <span>${escapeHtml(session.detection_count)} det.</span>
           </span>
@@ -245,15 +273,16 @@ function renderArtifacts(queue) {
         ? artifact.sizes_bytes.map(formatBytes).join(" / ")
         : "rozmiar nieznany";
       const context = [...artifact.origins, ...artifact.roles].filter(Boolean).join(" · ");
+      const isEmpty = artifact.workflow_state === "empty_upload";
       return `
         <article class="artifact-card">
           <div class="artifact-card-topline">
-            <span class="artifact-state">metadata only</span>
+            <span class="artifact-state">${isEmpty ? "empty upload" : "metadata only"}</span>
             <time datetime="${escapeHtml(artifact.last_seen)}">
-              ${escapeHtml(formatDate(artifact.last_seen))} UTC
+              ${escapeHtml(formatDate(artifact.last_seen))} ${displayTimeZoneLabel}
             </time>
           </div>
-          <h3>${escapeHtml(filename)}</h3>
+          <h3>${escapeHtml(isEmpty ? `${filename} — pusty transfer` : filename)}</h3>
           <code class="artifact-hash" title="${escapeHtml(artifact.sha256)}">
             ${escapeHtml(artifact.sha256)}
           </code>
@@ -303,7 +332,7 @@ function renderCandidates(queue) {
           <div class="artifact-card-topline">
             <span class="artifact-state candidate-state">fetcher disabled</span>
             <time datetime="${escapeHtml(candidate.last_seen)}">
-              ${escapeHtml(formatDate(candidate.last_seen))} UTC
+              ${escapeHtml(formatDate(candidate.last_seen))} ${displayTimeZoneLabel}
             </time>
           </div>
           <h3>${escapeHtml(filename)}</h3>
@@ -508,7 +537,7 @@ function renderCase(session) {
   document.querySelector("#case-source").textContent = `Źródło: ${session.source}`;
   document.querySelector("#case-geo").textContent = geoLocationLabel(session.geo);
   document.querySelector("#case-sensor").textContent = session.sensor_id;
-  document.querySelector("#case-start").textContent = `${formatDate(session.started_at)} UTC`;
+  document.querySelector("#case-start").textContent = `${formatDate(session.started_at)} ${displayTimeZoneLabel}`;
   document.querySelector("#case-duration").textContent = formatDuration(session.duration_seconds);
   document.querySelector("#case-events").textContent = session.event_count;
   document.querySelector("#risk-score").textContent = session.risk.score;

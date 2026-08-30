@@ -50,9 +50,7 @@ def write_report(session_id: str, output: Path) -> None:
     output.write_text(report, encoding="utf-8")
 
 
-def run_retention(
-    days: int, execute: bool, *, now: datetime | None = None
-) -> RetentionResult:
+def run_retention(days: int, execute: bool, *, now: datetime | None = None) -> RetentionResult:
     create_schema()
     with SessionLocal() as session:
         return apply_retention(
@@ -91,9 +89,15 @@ def _collector_message(result: CollectorResult) -> str:
     )
 
 
-def watch_cowrie(path: Path, state_path: Path, interval: float, once: bool) -> None:
+def watch_cowrie(
+    path: Path,
+    state_path: Path,
+    interval: float,
+    once: bool,
+    artifact_root: Path | None = None,
+) -> None:
     create_schema()
-    collector = CowrieFileCollector(path, state_path, SessionLocal)
+    collector = CowrieFileCollector(path, state_path, SessionLocal, artifact_root)
     previous_waiting_state: bool | None = None
     try:
         while True:
@@ -127,6 +131,11 @@ def parser() -> argparse.ArgumentParser:
     watch_command.add_argument("--state", type=Path, required=True)
     watch_command.add_argument("--interval", type=float, default=2.0)
     watch_command.add_argument("--once", action="store_true")
+    watch_command.add_argument(
+        "--artifact-root",
+        type=Path,
+        help="Katalog kwarantanny tylko do odczytu używany wyłącznie do stat() rozmiaru",
+    )
 
     report_command = commands.add_parser("report", help="Wygeneruj raport Markdown sesji")
     report_command.add_argument("session_id")
@@ -150,9 +159,7 @@ def parser() -> argparse.ArgumentParser:
     retention_worker_command = commands.add_parser(
         "retention-worker", help="Cyklicznie wykonuj retencję danych pilota"
     )
-    retention_worker_command.add_argument(
-        "--days", type=int, default=PILOT_MAX_RETENTION_DAYS
-    )
+    retention_worker_command.add_argument("--days", type=int, default=PILOT_MAX_RETENTION_DAYS)
     retention_worker_command.add_argument("--interval", type=float, default=86_400)
 
     collector_health_command = commands.add_parser(
@@ -174,7 +181,7 @@ def main() -> None:
     elif args.command == "watch-cowrie":
         if args.interval <= 0:
             raise SystemExit("--interval musi być większy od zera")
-        watch_cowrie(args.path, args.state, args.interval, args.once)
+        watch_cowrie(args.path, args.state, args.interval, args.once, args.artifact_root)
     elif args.command == "report":
         write_report(args.session_id, args.output)
         print(f"Raport zapisany: {args.output}")

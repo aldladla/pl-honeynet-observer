@@ -105,3 +105,44 @@ def test_artifact_manifest_is_allowlisted_and_contains_no_content_location() -> 
 
 def test_artifact_manifest_returns_none_for_unknown_identifier() -> None:
     assert artifact_manifest([], f"artifact-{'b' * 64}", "test-key") is None
+
+
+def test_empty_artifact_has_explicit_queue_state_and_known_zero_size() -> None:
+    event = artifact_event(
+        event_id="empty-artifact",
+        session_id="empty-session",
+        source_ip="192.0.2.10",
+        timestamp=datetime(2026, 8, 29, 10, 0, tzinfo=UTC),
+        filename="sshd",
+    )
+    event.data.update(
+        {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "size_bytes": 0,
+            "capture_status": "empty_upload",
+        }
+    )
+
+    artifact = artifact_queue([event])["artifacts"][0]
+
+    assert artifact["sizes_bytes"] == [0]
+    assert artifact["capture_statuses"] == ["empty_upload"]
+    assert artifact["workflow_state"] == "empty_upload"
+
+
+def test_queue_backfills_legacy_size_from_exact_sha_named_quarantine_file(tmp_path) -> None:
+    event = artifact_event(
+        event_id="legacy-artifact",
+        session_id="legacy-session",
+        source_ip="192.0.2.10",
+        timestamp=datetime(2026, 8, 29, 10, 0, tzinfo=UTC),
+        filename="legacy.bin",
+    )
+    event.data.pop("size_bytes")
+    quarantine = tmp_path / "downloads"
+    quarantine.mkdir()
+    (quarantine / ("a" * 64)).write_bytes(b"legacy-size")
+
+    artifact = artifact_queue([event], quarantine)["artifacts"][0]
+
+    assert artifact["sizes_bytes"] == [11]

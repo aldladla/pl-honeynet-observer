@@ -6,6 +6,7 @@ The collector reads metadata only. It never opens artifacts referenced by Cowrie
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -13,8 +14,10 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from honeynet.cowrie import normalize_lines
+from honeynet.cowrie import normalize_cowrie
 from honeynet.repository import EventRepository
+
+SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 @dataclass(frozen=True)
@@ -64,10 +67,32 @@ class CowrieFileCollector:
         log_path: Path,
         state_path: Path,
         session_factory: Callable[[], Session],
+        artifact_root: Path | None = None,
     ) -> None:
         self.log_path = log_path
         self.state_path = state_path
         self.session_factory = session_factory
+        self.artifact_root = artifact_root
+
+    def _enrich_artifact_size(self, record: dict[str, object]) -> None:
+        """Add a size using filesystem metadata only; never open sample content."""
+
+        if record.get("eventid") not in {
+            "cowrie.session.file_download",
+            "cowrie.session.file_upload",
+        }:
+            return
+        if isinstance(record.get("size"), int) or self.artifact_root is None:
+            return
+        sha256 = record.get("shasum")
+        if not isinstance(sha256, str) or not SHA256_PATTERN.fullmatch(sha256):
+            return
+        candidate = self.artifact_root / sha256.lower()
+        try:
+            if candidate.is_file():
+                record["size"] = candidate.stat().st_size
+        except OSError:
+            return
 
     @staticmethod
     def _identity(stat_result) -> str:
@@ -109,8 +134,12 @@ class CowrieFileCollector:
                     continue
                 try:
                     line = raw_line.decode("utf-8")
-                    events = list(normalize_lines([line]))
-                except (UnicodeDecodeError, ValueError):
+                    record = json.loads(line)
+                    if not isinstance(record, dict):
+                        raise TypeError("rekord nie jest obiektem JSON")
+                    self._enrich_artifact_size(record)
+                    events = normalize_cowrie(record)
+                except (UnicodeDecodeError, TypeError, ValueError, json.JSONDecodeError):
                     errors += 1
                     continue
                 if not events:

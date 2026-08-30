@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Literal
 
+from honeynet.artifact_state import is_meaningful_artifact
 from honeynet.database import StoredEvent
 from honeynet.reporting import as_utc
 
@@ -108,7 +109,9 @@ def analyze_attack_chain(events: list[StoredEvent]) -> list[AttackStage]:
     connections = [event for event in events if event.event_type == "connection_opened"]
     access_events = successful_logins or connections
     if access_events:
-        value = "Udane logowanie do emulowanej usługi" if successful_logins else "Połączenie z usługą"
+        value = (
+            "Udane logowanie do emulowanej usługi" if successful_logins else "Połączenie z usługą"
+        )
         stages.append(
             _stage(
                 session_id,
@@ -124,7 +127,7 @@ def analyze_attack_chain(events: list[StoredEvent]) -> list[AttackStage]:
 
     discovery = _matching_commands(
         commands,
-        r"(?:^|[;&|]\s*)(?:uname|id|whoami|hostname|lscpu|free|df|mount|ps|last|w|who)\b",
+        r"(?:^|[;&|($]\s*)(?:(?:/[a-z0-9_.+-]+)+/)?(?:uname|id|whoami|hostname|lscpu|free|df|mount|ps|last|w|who)\b",
         r"(?:^|[;&|]\s*)(?:ifconfig|netstat|route|arp|ip|ss)\b",
         r"/etc/(?:os-release|issue|passwd|resolv\.conf|hosts)\b",
         r"\b(?:cowrie|kippo|honeypot|systemd-detect-virt|virt-what|dmidecode)\b",
@@ -148,6 +151,7 @@ def analyze_attack_chain(events: list[StoredEvent]) -> list[AttackStage]:
         for event in events
         if event.event_type == "artifact_captured"
         and event.data.get("origin") in {"direct_upload", "shell_redirect", "stdin_capture"}
+        and is_meaningful_artifact(event.data)
     ]
     staging_commands = _matching_commands(
         commands,
@@ -155,14 +159,17 @@ def analyze_attack_chain(events: list[StoredEvent]) -> list[AttackStage]:
         r"(?:^|[;&|]\s*)(?:echo|printf|cat|base64)\b[^\n]*(?:>|\btee\b)",
     )
     if staging_artifacts or staging_commands:
-        evidence = tuple(
-            _evidence(
-                event,
-                f"Artefakt {event.data.get('origin', 'unknown')}: "
-                f"{event.data.get('filename', event.data.get('sha256', 'bez nazwy'))}",
+        evidence = (
+            tuple(
+                _evidence(
+                    event,
+                    f"Artefakt {event.data.get('origin', 'unknown')}: "
+                    f"{event.data.get('filename', event.data.get('sha256', 'bez nazwy'))}",
+                )
+                for event in staging_artifacts[:5]
             )
-            for event in staging_artifacts[:5]
-        ) or staging_commands
+            or staging_commands
+        )
         status: EvidenceStatus = "observed" if staging_artifacts else "attempted"
         stages.append(
             _stage(
@@ -181,7 +188,9 @@ def analyze_attack_chain(events: list[StoredEvent]) -> list[AttackStage]:
     remote_artifacts = [
         event
         for event in events
-        if event.event_type == "artifact_captured" and event.data.get("origin") == "remote_fetch"
+        if event.event_type == "artifact_captured"
+        and event.data.get("origin") == "remote_fetch"
+        and is_meaningful_artifact(event.data)
     ]
     transfer_commands = _matching_commands(
         commands,
@@ -190,7 +199,9 @@ def analyze_attack_chain(events: list[StoredEvent]) -> list[AttackStage]:
     if download_events or remote_artifacts or transfer_commands:
         emulated = any(event.data.get("outcome") == "emulated" for event in download_events)
         failed = any(event.data.get("outcome") == "failed" for event in download_events)
-        if remote_artifacts or any(event.data.get("outcome") == "succeeded" for event in download_events):
+        if remote_artifacts or any(
+            event.data.get("outcome") == "succeeded" for event in download_events
+        ):
             status = "observed"
             summary = "Telemetria Cowrie potwierdza zarejestrowanie transferu lub jego artefaktu."
             confidence = "high"
@@ -203,19 +214,28 @@ def analyze_attack_chain(events: list[StoredEvent]) -> list[AttackStage]:
             confidence = "high"
         elif failed:
             status = "contained"
-            summary = "Próba transferu została zarejestrowana jako nieudana w emulowanym środowisku."
+            summary = (
+                "Próba transferu została zarejestrowana jako nieudana w emulowanym środowisku."
+            )
             confidence = "high"
         else:
             status = "attempted"
             summary = "Komenda wskazuje zamiar transferu, ale nie potwierdza pobrania danych."
             confidence = "medium"
-        evidence = tuple(
-            _evidence(event, f"{event.data.get('outcome', 'unknown')}: {event.data.get('url', 'transfer')}")
-            for event in download_events[:5]
-        ) or tuple(
-            _evidence(event, f"Przechwycono hash {event.data.get('sha256')}")
-            for event in remote_artifacts[:5]
-        ) or transfer_commands
+        evidence = (
+            tuple(
+                _evidence(
+                    event,
+                    f"{event.data.get('outcome', 'unknown')}: {event.data.get('url', 'transfer')}",
+                )
+                for event in download_events[:5]
+            )
+            or tuple(
+                _evidence(event, f"Przechwycono hash {event.data.get('sha256')}")
+                for event in remote_artifacts[:5]
+            )
+            or transfer_commands
+        )
         stages.append(
             _stage(
                 session_id,

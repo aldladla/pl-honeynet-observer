@@ -39,6 +39,7 @@ class EventType(str, Enum):
     SHELL_OPENED = "shell_opened"
     COMMAND_INPUT = "command_input"
     COMMAND_FAILED = "command_failed"
+    COMMAND_OUTPUT = "command_output"
     FILE_DOWNLOAD_REQUESTED = "file_download_requested"
     ARTIFACT_CAPTURED = "artifact_captured"
     CONNECTION_CLOSED = "connection_closed"
@@ -89,11 +90,23 @@ class CommandFailedData(StrictPayload):
     reason: Annotated[str, Field(min_length=1, max_length=512)] | None = None
 
 
+class CommandOutputData(StrictPayload):
+    command: Annotated[str, Field(min_length=1, max_length=65_536)]
+    tool: Annotated[str, Field(min_length=1, max_length=64)]
+    stdout: Annotated[str, Field(max_length=8192)] = ""
+    stderr: Annotated[str, Field(max_length=8192)] = ""
+    exit_code: Annotated[int, Field(ge=0, le=255)]
+    emulated: bool = True
+
+
 class FileDownloadRequestedData(StrictPayload):
     url: AnyUrl
     tool: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     outcome: Literal["succeeded", "failed", "emulated", "unknown"] | None = None
     destination_filename: Annotated[str, Field(min_length=1, max_length=512)] | None = None
+    phase: Literal["primary", "fallback"] | None = None
+    execution_intended: bool | None = None
+    cleanup_intended: bool | None = None
 
 
 class ArtifactCapturedData(StrictPayload):
@@ -105,6 +118,9 @@ class ArtifactCapturedData(StrictPayload):
         "direct_upload", "remote_fetch", "shell_redirect", "stdin_capture", "unknown"
     ] = "unknown"
     role: Literal["key", "config", "script", "archive", "executable", "unknown"] = "unknown"
+    capture_status: Literal["complete", "empty_upload", "incomplete_transfer", "unknown"] | None = (
+        None
+    )
 
 
 class ConnectionClosedData(StrictPayload):
@@ -140,6 +156,7 @@ class Event(BaseModel):
         EventType.SHELL_OPENED: TypeAdapter(ShellOpenedData),
         EventType.COMMAND_INPUT: TypeAdapter(CommandInputData),
         EventType.COMMAND_FAILED: TypeAdapter(CommandFailedData),
+        EventType.COMMAND_OUTPUT: TypeAdapter(CommandOutputData),
         EventType.FILE_DOWNLOAD_REQUESTED: TypeAdapter(FileDownloadRequestedData),
         EventType.ARTIFACT_CAPTURED: TypeAdapter(ArtifactCapturedData),
         EventType.CONNECTION_CLOSED: TypeAdapter(ConnectionClosedData),

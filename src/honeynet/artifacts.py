@@ -9,8 +9,10 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 
+from honeynet.artifact_state import artifact_capture_status
 from honeynet.database import StoredEvent
 from honeynet.reporting import as_utc, pseudonymize_ip
 
@@ -39,6 +41,18 @@ def _safe_size(value: object) -> int | None:
     return value
 
 
+def _quarantine_size(sha256: str, artifact_root: Path | None) -> int | None:
+    """Read filesystem metadata for an exact SHA-named file without opening content."""
+
+    if artifact_root is None or not SHA256_PATTERN.fullmatch(sha256):
+        return None
+    candidate = artifact_root / sha256
+    try:
+        return candidate.stat().st_size if candidate.is_file() else None
+    except OSError:
+        return None
+
+
 def _geo_projection(value: dict[str, Any] | None) -> dict[str, Any] | None:
     if not value:
         return None
@@ -60,7 +74,11 @@ def _group_artifacts(events: Iterable[StoredEvent]) -> dict[str, list[StoredEven
     return grouped
 
 
-def _artifact_summary(sha256: str, events: list[StoredEvent]) -> dict[str, Any]:
+def _artifact_summary(
+    sha256: str,
+    events: list[StoredEvent],
+    artifact_root: Path | None = None,
+) -> dict[str, Any]:
     filenames = sorted(
         {
             filename
@@ -69,18 +87,10 @@ def _artifact_summary(sha256: str, events: list[StoredEvent]) -> dict[str, Any]:
         }
     )
     origins = sorted(
-        {
-            origin
-            for event in events
-            if (origin := _safe_text(event.data.get("origin"), maximum=32))
-        }
+        {origin for event in events if (origin := _safe_text(event.data.get("origin"), maximum=32))}
     )
     roles = sorted(
-        {
-            role
-            for event in events
-            if (role := _safe_text(event.data.get("role"), maximum=32))
-        }
+        {role for event in events if (role := _safe_text(event.data.get("role"), maximum=32))}
     )
     media_types = sorted(
         {
@@ -90,11 +100,15 @@ def _artifact_summary(sha256: str, events: list[StoredEvent]) -> dict[str, Any]:
         }
     )
     sizes = sorted(
-        {
-            size
-            for event in events
-            if (size := _safe_size(event.data.get("size_bytes"))) is not None
-        }
+        {size for event in events if (size := _safe_size(event.data.get("size_bytes"))) is not None}
+    )
+    if not sizes and (quarantine_size := _quarantine_size(sha256, artifact_root)) is not None:
+        sizes = [quarantine_size]
+    capture_statuses = sorted({artifact_capture_status(event.data) for event in events})
+    workflow_state = (
+        "empty_upload"
+        if set(capture_statuses) <= {"empty_upload", "incomplete_transfer"}
+        else "metadata_only"
     )
     return {
         "artifact_id": _artifact_id(sha256),
@@ -109,17 +123,23 @@ def _artifact_summary(sha256: str, events: list[StoredEvent]) -> dict[str, Any]:
         "roles": roles,
         "media_types": media_types,
         "sizes_bytes": sizes,
-        "workflow_state": "metadata_only",
+        "capture_statuses": capture_statuses,
+        "workflow_state": workflow_state,
         "content_exposed_by_api": False,
         "execution_allowed": False,
     }
 
 
-def artifact_queue(events: Iterable[StoredEvent]) -> dict[str, Any]:
+def artifact_queue(
+    events: Iterable[StoredEvent], artifact_root: Path | None = None
+) -> dict[str, Any]:
     """Return a deduplicated, metadata-only queue sorted by last observation."""
 
     grouped = _group_artifacts(events)
-    artifacts = [_artifact_summary(sha256, observations) for sha256, observations in grouped.items()]
+    artifacts = [
+        _artifact_summary(sha256, observations, artifact_root)
+        for sha256, observations in grouped.items()
+    ]
     artifacts.sort(key=lambda item: item["last_seen"], reverse=True)
     return {
         "status": "metadata_only",
@@ -134,6 +154,7 @@ def artifact_manifest(
     artifact_id: str,
     pseudonym_key: str,
     geoip_lookup: GeoIpLookup | None = None,
+    artifact_root: Path | None = None,
 ) -> dict[str, Any] | None:
     """Build an allowlisted manifest without exposing or handling file content."""
 
@@ -141,7 +162,8 @@ def artifact_manifest(
     for sha256, observations in grouped.items():
         if _artifact_id(sha256) != artifact_id:
             continue
-        summary = _artifact_summary(sha256, observations)
+        summary = _artifact_summary(sha256, observations, artifact_root)
+        quarantine_size = _quarantine_size(sha256, artifact_root)
         projected_observations = []
         for event in observations:
             projected_observations.append(
@@ -151,14 +173,15 @@ def artifact_manifest(
                     "sensor_id": event.sensor_id,
                     "session_id": event.session_id,
                     "source": pseudonymize_ip(event.source_ip, pseudonym_key),
-                    "geo": _geo_projection(geoip_lookup(event.source_ip))
-                    if geoip_lookup
-                    else None,
+                    "geo": _geo_projection(geoip_lookup(event.source_ip)) if geoip_lookup else None,
                     "filename": _safe_text(event.data.get("filename"), maximum=512),
                     "origin": _safe_text(event.data.get("origin"), maximum=32) or "unknown",
                     "role": _safe_text(event.data.get("role"), maximum=32) or "unknown",
-                    "size_bytes": _safe_size(event.data.get("size_bytes")),
+                    "size_bytes": _safe_size(event.data.get("size_bytes"))
+                    if _safe_size(event.data.get("size_bytes")) is not None
+                    else quarantine_size,
                     "media_type": _safe_text(event.data.get("media_type"), maximum=255),
+                    "capture_status": artifact_capture_status(event.data),
                 }
             )
         return {

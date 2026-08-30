@@ -924,6 +924,7 @@ main {
 
 .timeline-event[data-type="file_download_requested"] .event-node,
 .timeline-event[data-type="artifact_captured"] .event-node,
+.timeline-event[data-type="command_output"] .event-node,
 .timeline-event[data-type="command_input"] .event-node {
   background: var(--signal);
 }

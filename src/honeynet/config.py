@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     report_pseudonym_key: str = "local-development-only"
     geoip_country_db_path: str | None = None
     geoip_asn_db_path: str | None = None
+    cowrie_artifact_root: Path | None = None
     dashboard_event_limit: int = Field(default=50_000, ge=10_001, le=250_000)
 
 

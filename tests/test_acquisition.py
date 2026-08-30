@@ -123,3 +123,25 @@ def test_candidate_identifier_is_keyed_and_unknown_identifier_returns_none() -> 
 
     assert first["candidate_id"] != second["candidate_id"]
     assert acquisition_candidate_manifest([event], "candidate-missing", "first-key") is None
+
+
+def test_candidate_queue_preserves_compound_chain_intent() -> None:
+    event = download_event(
+        event_id="download-fallback",
+        session_id="session-fallback",
+        source_ip="192.0.2.10",
+        timestamp=datetime(2026, 8, 29, 10, 0, tzinfo=UTC),
+    )
+    event.data.update(
+        {
+            "phase": "fallback",
+            "execution_intended": True,
+            "cleanup_intended": True,
+        }
+    )
+
+    candidate = acquisition_candidate_queue([event], "test-key")["candidates"][0]
+
+    assert candidate["phases"] == ["fallback"]
+    assert candidate["execution_intended"] is True
+    assert candidate["cleanup_intended"] is True

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2014-2026 Michel Oosterhof <michel@oosterhof.net>
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Cowrie 3.0.12 command registry with the local safe-transfer override last."""
+"""Cowrie 3.0.12 registry plus local no-network persona overrides."""
 
 from __future__ import annotations
 
@@ -15,6 +15,12 @@ command_modules = [
     "python", "scp", "service", "sleep", "ssh", "su", "sudo", "tar",
     "tee", "tftp", "ulimit", "uname", "uniq", "unzip", "uptime", "wc",
     "wget", "which", "yum",
-    # Loaded last so only wget/curl are replaced by a no-network simulation.
+    # Loaded after the standard modules so wget/curl become no-network simulations.
     "safe_transfer",
+    # Session-consistent build-worker responses and bounded output telemetry.
+    "persona_v2",
+    # Dynamic synthetic /proc/uptime; every other cat path delegates to Cowrie.
+    "safe_cat",
+    # Narrow fast-path for the observed write/chmod/run/remove shell self-test.
+    "safe_shell",
 ]

@@ -1,0 +1,13 @@
+[Unit]
+Description=Application build worker
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/app
+ExecStart=/usr/bin/node /opt/app/server.js
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import Any
 
+from honeynet.artifact_state import artifact_capture_status, is_meaningful_artifact
 from honeynet.attack_chain import analyze_attack_chain
 from honeynet.database import StoredEvent
 from honeynet.detections import Detection, analyze_session
@@ -21,6 +22,10 @@ EVENT_COPY = {
     "shell_opened": ("Powłoka otwarta", "Sesja osiągnęła emulowaną powłokę."),
     "command_input": ("Wprowadzono komendę", "Polecenie trafiło do emulowanego systemu."),
     "command_failed": ("Komenda nierozpoznana", "Emulowane środowisko odrzuciło polecenie."),
+    "command_output": (
+        "Odpowiedź emulowanego systemu",
+        "Sensor zapisał odpowiedź i kod zakończenia pokazane źródłu.",
+    ),
     "file_download_requested": (
         "Próba pobrania pliku",
         "Sesja odwołała się do zewnętrznego zasobu.",
@@ -44,6 +49,10 @@ SAFE_DATA_FIELDS = {
     "success",
     "terminal",
     "command",
+    "stdout",
+    "stderr",
+    "exit_code",
+    "emulated",
     "url",
     "tool",
     "outcome",
@@ -56,6 +65,10 @@ SAFE_DATA_FIELDS = {
     "role",
     "reason",
     "duration_ms",
+    "phase",
+    "execution_intended",
+    "cleanup_intended",
+    "capture_status",
 }
 
 
@@ -65,8 +78,11 @@ def _timestamp(value: datetime) -> str:
 
 def _risk(events: list[StoredEvent], detections: list[Detection]) -> dict[str, Any]:
     types = {event.event_type for event in events}
-    if "artifact_captured" in types:
+    artifact_events = [event for event in events if event.event_type == "artifact_captured"]
+    if any(is_meaningful_artifact(event.data) for event in artifact_events):
         base_score, base_label = 92, "Artefakt przechwycony"
+    elif artifact_events:
+        base_score, base_label = 18, "Pusty lub niedokończony upload"
     elif "file_download_requested" in types:
         base_score, base_label = 74, "Próba dostarczenia pliku"
     elif "command_input" in types:
@@ -170,11 +186,18 @@ def dashboard_session(
                 "Sensor nie pobrał zasobu. Utworzył nieszkodliwą atrapę, "
                 "aby obserwować następny krok źródła."
             )
+        if event.event_type == "artifact_captured" and not is_meaningful_artifact(event.data):
+            title = "Pusty lub niedokończony upload"
+            description = (
+                "Sensor zarejestrował transfer, ale nie otrzymał użytecznej zawartości pliku."
+            )
         safe_data = {
             field: value
             for field, value in event.data.items()
             if field in SAFE_DATA_FIELDS and value is not None
         }
+        if event.event_type == "artifact_captured":
+            safe_data["capture_status"] = artifact_capture_status(event.data)
         timeline.append(
             {
                 "event_id": event.event_id,
