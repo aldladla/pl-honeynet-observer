@@ -7,6 +7,11 @@ próby pobierania oraz metadane pozostawionych plików.
 **Technologie:** Python, FastAPI, SQLAlchemy, PostgreSQL / SQLite, Cowrie,
 Docker, Linux, Grafana, JavaScript.
 
+![Przegląd nowych sygnałów w zachowanej historii](docs/images/observer-overview-20260907.png)
+
+*Panel operatora, 7 września 2026. Nowy hash oznacza nowość w zachowanej
+historii, nie potwierdzenie nowego malware. Screeny przedstawiają wersję rozwojową.*
+
 ## Najważniejsze funkcje
 
 - Rekonstrukcja sesji: logowanie, komendy, transfery i chronologiczna oś zdarzeń.
@@ -25,6 +30,26 @@ Logi Cowrie → normalizacja → baza danych → sesja i detekcje → triage pli
 Projekt służy do ćwiczenia analizy logów, oceny podejrzanej aktywności
 i dokumentowania ustaleń. Reguły wskazują zachowania; nie potwierdzają
 automatycznie rodziny malware, wspólnego sprawcy ani skuteczności exploita.
+
+<details>
+<summary>Sesja: detekcje i dowody z poleceń</summary>
+
+Reguły wskazują rozpoznanie hosta i przygotowanie wykonania; obok widać
+polecenia stanowiące podstawę oceny. Źródła są pseudonimizowane.
+
+![Detekcje zachowań wraz z poleceniami w sesji](docs/images/session-evidence-20260907.png)
+
+</details>
+
+<details>
+<summary>Pliki: triage i powtarzające się obserwacje</summary>
+
+Kolejka łączy identyczne SHA-256 i pokazuje rozmiary oraz liczbę powiązanych
+sesji. Metadane transferu nie zastępują analizy zawartości pliku.
+
+![Kolejka plików z liczbą obserwacji i powiązanych sesji](docs/images/artifact-triage-20260907.png)
+
+</details>
 
 ## Bezpieczeństwo
 
