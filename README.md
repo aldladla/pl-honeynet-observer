@@ -9,7 +9,62 @@ Najważniejszym założeniem projektu jest izolacja. Sensor nie może służyć 
 wyjścia do innych systemów, a przechwycone pliki są zapisywane w kwarantannie i
 nigdy nie są wykonywane przez pipeline analityczny.
 
-![Widok sesji o wysokim ryzyku](docs/images/dashboard-overview.png)
+Projekt rozwijam jako praktyczne laboratorium pracy analityka SOC: od logu sensora,
+przez triage i rekonstrukcję sesji, do zapisania ustaleń opartych na dowodach.
+
+**Stack:** Python · FastAPI · Pydantic · SQLAlchemy · PostgreSQL / SQLite ·
+Cowrie · Docker Compose · Linux · Grafana · JavaScript.
+
+![Aktualny panel: przegląd nowych sygnałów na danych syntetycznych](docs/images/analyst-overview-demo.png)
+
+*Podgląd lokalnej wersji rozwojowej z 7 września 2026. Dane są syntetyczne;
+liczniki na nowych screenshotach nie przedstawiają wyników sensora. Opis i obrazy
+wersji rozwojowej są publikowane przed pełną aktualizacją jej kodu na GitHub.*
+
+## Jak wygląda praca analityka
+
+1. Przegląd nowych sygnałów i odróżnienie ich od powtórzeń w zachowanej historii.
+2. Otwarcie sesji i sprawdzenie logowania, poleceń, transferów oraz dowodów reguł.
+3. Porównanie metadanych pliku po SHA-256 i przejście do powiązanych sesji.
+4. Zapisanie ustaleń, kompletności próbki i pewności oceny w karcie analizy.
+
+Kroki 1 i 4 oraz odświeżona nawigacja są częścią lokalnej wersji rozwojowej.
+Panel wspiera ocenę analityka; klasyfikacja pliku w karcie jest oceną operatora.
+
+## Podgląd aktualnej wersji rozwojowej
+
+Panel ma trzy obszary pracy: **Przegląd**, **Sesje** i **Pliki**.
+Nowość oznacza pierwszy ślad w zachowanej historii, a nie odkrycie nowego malware.
+Grupowanie według hasha, adresu pobierania lub wzorca komend pomaga odnaleźć
+powiązane sesje, ale samo nie potwierdza wspólnej kampanii ani sprawcy.
+
+Karta analizy rozdziela status pracy, kompletność próbki, klasyfikację,
+pewność oceny i zapisane dowody. Pozwala także pozostawić analizę częściową.
+
+![Karta analizy artefaktu — formularz w demonstracyjnej wersji panelu](docs/images/analysis-card-demo.png)
+
+<details>
+<summary>Aktualna kolejka plików — dane demonstracyjne</summary>
+
+Wyszukiwanie po nazwie i SHA-256, liczba obserwacji, archiwizacja oraz przejście
+do karty analizy. Przechwycony artefakt i samo źródło pobierania są prezentowane
+oddzielnie.
+
+![Aktualna kolejka artefaktów na danych syntetycznych](docs/images/artifact-queue-demo.png)
+
+</details>
+
+## Kompetencje rozwijane w projekcie
+
+- Analiza logów SSH i korelacja zdarzeń w ramach sesji.
+- Triage poleceń oraz metadanych podejrzanych plików.
+- Budowa wyjaśnialnych reguł wykrywania zachowań.
+- Rozróżnianie próby wykonania, odpowiedzi emulatora i potwierdzonego zdarzenia.
+- Dokumentowanie dowodów, hipotez i ograniczeń analizy.
+- Obsługa izolowanego środowiska Linux / Docker oraz monitoringu sensora.
+
+Praca z próbkami w osobnym laboratorium jest etapem ręcznym. Sam pipeline
+nie wykonuje automatycznej analizy dynamicznej malware.
 
 ## Co udało się zbudować
 
@@ -54,6 +109,9 @@ przez tunel SSH. Publicznie wystawiany jest tylko emulowany sensor. PostgreSQL
 pozostaje w wewnętrznej sieci Dockera.
 
 ## Widoki analityczne
+
+Poniższe obrazy dokumentują wcześniejszą wersję panelu i pilotaż.
+Aktualny wygląd wersji rozwojowej pokazano na początku README.
 
 Autorski panel służy do czytania pojedynczych sesji: pokazuje logowanie, polecenia,
 transfery, detekcje i chronologiczną rekonstrukcję. Widoki nie ujawniają surowych
@@ -143,8 +201,10 @@ docs/                  metodologia, prywatność i instrukcje bezpieczeństwa
 - Do badania ataków ukierunkowanych potrzebne byłyby dodatkowe sensory kontrolne i
   dłuższy okres obserwacji.
 
-Kolejne planowane kroki to bezpieczny eksport próbek do jednorazowego laboratorium
-analizy statycznej, lepsze grupowanie kampanii oraz porównanie kilku sensorów.
+Najbliższe kroki to weryfikacja i publikacja aktualnej wersji panelu, opisanie
+studium przypadku z dowodami oraz ocena jakości grupowania sesji. Kolejny etap
+badawczy to wyróżnianie zmian w powracających schematach aktywności i sprawdzanie
+reguł wykrywania na zachowanych logach oraz przykładach zwykłej administracji.
 
 ## Sposób pracy
 
