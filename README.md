@@ -1,8 +1,14 @@
 # PL Honeynet Observer
 
-Projekt studencki wspierający analizę aktywności w honeypocie SSH.
-Zbiera logi Cowrie, łączy zdarzenia w sesje i pomaga prześledzić polecenia,
-próby pobierania oraz metadane pozostawionych plików.
+Projekt studencki do zbierania i analizy telemetrii honeypotów oraz nauki
+utrzymania usług na Linuksie. Opublikowany kod obejmuje pipeline Cowrie SSH:
+logi, korelację sesji, detekcje zachowań i metadane pozostawionych plików.
+
+**Aktualizacja - 20 października 2026:** środowisko operatora zostało rozbudowane
+o sensor HTTP, narzędzia analityka i dokładniejszą ocenę transferów SCP/SFTP.
+Część zmian działa w prywatnym wdrożeniu, a część pozostaje w lokalnych labach.
+Ten update publikuje dokumentację postępu; nie dodaje kodu tych rozszerzeń.
+[Aktualny stan projektu i zakres publikacji](docs/project-status-2026-10.md).
 
 **Technologie:** Python, FastAPI, SQLAlchemy, PostgreSQL / SQLite, Cowrie,
 Docker, Linux, Grafana, JavaScript.
@@ -20,8 +26,10 @@ historii, nie potwierdzenie nowego malware. Screeny przedstawiają wersję rozwo
 - Kontekst klientów SSH, HASSH i GeoIP/ASN.
 - Izolacja sensora, monitoring, retencja i awaryjny kill switch.
 
-Lokalna wersja rozwojowa dodaje przegląd nowych sygnałów, grupowanie powiązanych
-sesji i karty analizy. Pełna aktualizacja jej kodu na GitHub jest w przygotowaniu.
+Wersja rozwojowa dodaje przegląd nowych sygnałów, grupowanie powiązanych
+sesji i karty analizy. Aktualny zakres wdrożeń i labów opisuje
+[raport stanu](docs/project-status-2026-10.md). Pełna publikacja ich kodu
+pozostaje osobnym etapem.
 
 ## Przepływ analizy
 
