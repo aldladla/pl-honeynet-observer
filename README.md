@@ -4,19 +4,31 @@ Projekt studencki do zbierania i analizy telemetrii honeypotów oraz nauki
 utrzymania usług na Linuksie. Opublikowany kod obejmuje pipeline Cowrie SSH:
 logi, korelację sesji, detekcje zachowań i metadane pozostawionych plików.
 
-**Aktualizacja - 20 października 2026:** środowisko operatora zostało rozbudowane
-o sensor HTTP, narzędzia analityka i dokładniejszą ocenę transferów SCP/SFTP.
-Część zmian działa w prywatnym wdrożeniu, a część pozostaje w lokalnych labach.
-Ten update publikuje dokumentację postępu; nie dodaje kodu tych rozszerzeń.
-[Aktualny stan projektu i zakres publikacji](docs/project-status-2026-10.md).
+**Aktualizacja - 21 października 2026:** analiza 11 380 sesji i 165 534 zdarzeń,
+kontrolowane testy SCP/SFTP oraz poprawki jakości danych wdrożone w środowisku
+operatora na VPS. [Studium dochodzenia: równoległe sesje rozpoznania i transferu](docs/case-study-parallel-sessions-2026-10.md)
+pokazuje metodę, wyniki i granice interpretacji.
+Ta aktualizacja publikuje opis prac i zrzut panelu; kod rozszerzeń pozostaje
+poza publiczną wersją. [Stan projektu i zakres publikacji](docs/project-status-2026-10.md).
 
 **Technologie:** Python, FastAPI, SQLAlchemy, PostgreSQL / SQLite, Cowrie,
 Docker, Linux, Grafana, JavaScript.
 
-![Przegląd nowych sygnałów w zachowanej historii](docs/images/observer-overview-20260907.png)
+![Panel operatora: filtrowanie małych zapisów powłoki i jawny zakres odczytanych obserwacji](docs/images/artifact-provenance-20261021.png)
 
-*Panel operatora, 7 września 2026. Nowy hash oznacza nowość w zachowanej
-historii, nie potwierdzenie nowego malware. Screeny przedstawiają wersję rozwojową.*
+*Panel operatora, 21 października 2026. Filtr rozdziela sposób zapisu pliku,
+a kolejka podaje zakres odczytanych obserwacji. Licznik hashy nie oznacza liczby
+malware. Zrzut przedstawia prywatnie wdrożone rozszerzenie, którego kod nie
+jest jeszcze częścią publicznego repozytorium.*
+
+## Przykład analizy opartej na dowodach
+
+W zamrożonym zbiorze znaleziono 2 132 pary równoległych sesji rozpoznania
+i transferu, kończących się w odstępie do 25 ms. Sesje rozpoznania mają identyczny
+prefiks 13 komend. Wynik wskazuje powtarzalny schemat automatyzacji; nie dowodzi
+wspólnego sprawcy ani wykonania przesłanego pliku.
+
+[Przeczytaj studium przypadku i opis testów kompletności transferu](docs/case-study-parallel-sessions-2026-10.md).
 
 ## Najważniejsze funkcje
 
@@ -26,8 +38,8 @@ historii, nie potwierdzenie nowego malware. Screeny przedstawiają wersję rozwo
 - Kontekst klientów SSH, HASSH i GeoIP/ASN.
 - Izolacja sensora, monitoring, retencja i awaryjny kill switch.
 
-Wersja rozwojowa dodaje przegląd nowych sygnałów, grupowanie powiązanych
-sesji i karty analizy. Aktualny zakres wdrożeń i labów opisuje
+Wersja operatora dodaje przegląd nowych sygnałów, grupowanie powiązanych
+sesji, karty analizy i filtr sposobu zapisu pliku. Zakres wdrożeń i labów opisuje
 [raport stanu](docs/project-status-2026-10.md). Pełna publikacja ich kodu
 pozostaje osobnym etapem.
 
@@ -44,6 +56,7 @@ automatycznie rodziny malware, wspólnego sprawcy ani skuteczności exploita.
 
 Reguły wskazują rozpoznanie hosta i przygotowanie wykonania; obok widać
 polecenia stanowiące podstawę oceny. Źródła są pseudonimizowane.
+Zrzut przedstawia wersję rozwojową z 7 września 2026.
 
 ![Detekcje zachowań wraz z poleceniami w sesji](docs/images/session-evidence-20260907.png)
 
@@ -54,6 +67,7 @@ polecenia stanowiące podstawę oceny. Źródła są pseudonimizowane.
 
 Kolejka łączy identyczne SHA-256 i pokazuje rozmiary oraz liczbę powiązanych
 sesji. Metadane transferu nie zastępują analizy zawartości pliku.
+Zrzut przedstawia wersję rozwojową z 7 września 2026.
 
 ![Kolejka plików z liczbą obserwacji i powiązanych sesji](docs/images/artifact-triage-20260907.png)
 
