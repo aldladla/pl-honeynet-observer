@@ -1,0 +1,85 @@
+{
+  "window": {
+    "start_utc": "2026-10-16T00:00:00+00:00",
+    "end_utc_exclusive": "2026-11-05T13:16:40.420058+00:00"
+  },
+  "source_snapshot_sha256": "102cfb48062e7bff8c47e209f4abffdad4b26bd6683267cfa2d7d4c83159b5b0",
+  "data_kind": "aggregated observations; no raw session records",
+  "files": [
+    {
+      "path": "analysis/session_actions.py",
+      "sha256": "b69b595efc097d236ca74b1be1bead225c9980d6a434d46b3cc94e90f5eeb480",
+      "bytes": 4197
+    },
+    {
+      "path": "analysis/test_session_actions.py",
+      "sha256": "02e75b05da31c51c6318f43dcb05f6ab8d49e38464c249302bec2a3d78ce0cdc",
+      "bytes": 2027
+    },
+    {
+      "path": "assets/01-kraje.png",
+      "sha256": "db542d990c0ba4c4186f2dbccb6d43d7db8c6538a54f64a1da46039efae2b374",
+      "bytes": 232612
+    },
+    {
+      "path": "assets/02-skala-danych.png",
+      "sha256": "72b268be32af962c6c18afa83b913c73ffedb6dbb419df6000170901c94e9013",
+      "bytes": 113850
+    },
+    {
+      "path": "assets/03-ruch-w-czasie.png",
+      "sha256": "bbf762cf61804d830f1002776314acc5d37218c56f2797cc30cd6116a7502a4b",
+      "bytes": 95423
+    },
+    {
+      "path": "assets/04-loginy.png",
+      "sha256": "7a49f6c08972806a837c8e16c0b18e315cf4b2712fe9dd42a815b974e6ece1da",
+      "bytes": 111322
+    },
+    {
+      "path": "assets/05-dzialania.png",
+      "sha256": "4b7af2825e8ede8dde5eab9fc1aeee812814319a534d01c5d23763526df910b3",
+      "bytes": 163136
+    },
+    {
+      "path": "cowrie-wyniki.pdf",
+      "sha256": "3128e183097122ce8cf88357fc646571a67bb66bddb043f22028b839b80bfe1b",
+      "bytes": 167722
+    },
+    {
+      "path": "data/countries.csv",
+      "sha256": "15d9cbcb9521508b423cecb491ee408ef09724bd05de6b3a30164915f464106d",
+      "bytes": 1827
+    },
+    {
+      "path": "data/daily-traffic.csv",
+      "sha256": "04072ab0d649573b6a779d17b87c6db5896aada8470e79fcf1916678fa86bffe",
+      "bytes": 565
+    },
+    {
+      "path": "data/login-top5.csv",
+      "sha256": "48cfa00611ef4c70f911d2e3529ef408f12d0f6387ed03eda8dd6c409f244ad2",
+      "bytes": 142
+    },
+    {
+      "path": "data/operational-intervals.json",
+      "sha256": "fdd984b1df3352c60d17b3646784a1261093f40004939cd5cb8f16b12056c577",
+      "bytes": 1143
+    },
+    {
+      "path": "data/session-actions.csv",
+      "sha256": "b113fd2920023794fb09daa0a459cc6e05ee0a78681420c1955e11bbdf81a5d9",
+      "bytes": 238
+    },
+    {
+      "path": "data/summary.json",
+      "sha256": "f2c78f392147aeff07f2c8dacfa20cc2b179816c224ff751326b2ddce52bce1d",
+      "bytes": 2558
+    },
+    {
+      "path": "README.md",
+      "sha256": "ea70fee1ca77f5b88a857422fdbbde8576c0bffbbf3868ceccc79dd289ffb41b",
+      "bytes": 7581
+    }
+  ]
+}
