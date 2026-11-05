@@ -5,14 +5,54 @@ utrzymania usług na Linuksie. Opublikowany kod obejmuje pipeline Cowrie SSH:
 logi, korelację sesji, detekcje zachowań i metadane pozostawionych plików.
 
 <!-- cowrie-observation-report-2026-11 -->
-**Wyniki obserwacji - 5 listopada 2026:** **602 904 sesje**, **1667 publicznych IP**
-i **9,78 mln zapisów poleceń** z Cowrie SSH i Telnetu. Zestawienie obejmuje archiwa
-oraz powtórzenia; pokazuje też okresy przerw w odbiorze.
+## Wyniki obserwacji Cowrie
 
-**[Przeczytaj raport: kraje, ruch, loginy i działania w sesjach](docs/reports/cowrie-2026-11/README.md)** ·
-[PDF z pięcioma planszami](docs/reports/cowrie-2026-11/cowrie-wyniki.pdf)
+**16 października - 5 listopada 2026, do 13:16 UTC.** Publiczny ruch SSH i Telnetu,
+z uwzględnieniem archiwów oraz powtarzających się sesji. Ostatni dzień jest niepełny.
 
-![Kraje infrastruktury źródłowej i udział sesji Cowrie](docs/reports/cowrie-2026-11/assets/01-kraje.png)
+| Sesje | Publiczne IP | Zapisy poleceń | Sesje z poleceniami |
+| ---: | ---: | ---: | ---: |
+| **602 904** | **1667** | **9 784 030** | **189 566** |
+
+[Pełny raport i metodyka](docs/reports/cowrie-2026-11/README.md) ·
+[PDF z pięcioma planszami](docs/reports/cowrie-2026-11/cowrie-wyniki.pdf) ·
+[Dane zbiorcze](docs/reports/cowrie-2026-11/data/summary.json)
+
+### Skąd pochodził ruch?
+
+![Mapa krajów infrastruktury źródłowej i liczba sesji](docs/reports/cowrie-2026-11/assets/01-kraje.png)
+
+### Ile danych zebrano?
+
+![Liczba sesji, publicznych IP, zapisów poleceń i sesji z poleceniami](docs/reports/cowrie-2026-11/assets/02-skala-danych.png)
+
+### Jak zmieniał się ruch?
+
+![Dzienny ruch SSH i Telnetu z osobnymi skalami oraz oznaczonymi przerwami](docs/reports/cowrie-2026-11/assets/03-ruch-w-czasie.png)
+
+### Jakie loginy podawano?
+
+![Pięć najczęstszych loginów i liczba prób logowania](docs/reports/cowrie-2026-11/assets/04-loginy.png)
+
+### Co robiono po zalogowaniu?
+
+![Kategorie poleceń w sesjach i schemat kolejności działań](docs/reports/cowrie-2026-11/assets/05-dzialania.png)
+
+Udziały działań odnoszą się do **189 566 sesji z poleceniami**.
+Kategorie nakładają się i opisują dopasowania reguł do poleceń w emulatorze.
+
+<details>
+<summary>Jak czytać wyniki i gdzie sprawdzić szczegóły?</summary>
+
+Liczba sesji opisuje wolumen wraz z powtórzeniami, a nie liczbę niezależnych
+ataków lub osób. Geolokalizacja wskazuje kraj infrastruktury źródłowej.
+Polecenia pokazują zaobserwowane próby działania, bez potwierdzenia infekcji.
+
+Historyczny klasyfikator ma opisane ograniczenie reguły `curl`, które może
+zaniżać rozpoznaną liczbę prób dostarczania plików.
+[Metoda, ograniczenia i dane do przeliczenia](docs/reports/cowrie-2026-11/README.md#metoda-i-ograniczenia).
+
+</details>
 <!-- /cowrie-observation-report-2026-11 -->
 
 **Aktualizacja - 21 października 2026:** analiza 11 380 sesji i 165 534 zdarzeń,
