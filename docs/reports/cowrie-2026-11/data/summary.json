@@ -1,0 +1,91 @@
+{
+  "window": {
+    "start_utc": "2026-10-16T00:00:00+00:00",
+    "end_utc_exclusive": "2026-11-05T13:16:40.420058+00:00"
+  },
+  "scope": "Cowrie SSH and Telnet; no other sensors included",
+  "sessions": 602904,
+  "unique_public_source_ips": 1667,
+  "countries_and_areas": 103,
+  "command_input_records": 9784030,
+  "sessions_with_commands": 189566,
+  "login_attempts": 600678,
+  "top5_usernames": [
+    {
+      "username": "root",
+      "attempts": 227325
+    },
+    {
+      "username": "admin",
+      "attempts": 151572
+    },
+    {
+      "username": "super",
+      "attempts": 13125
+    },
+    {
+      "username": "support",
+      "attempts": 10982
+    },
+    {
+      "username": "guest",
+      "attempts": 10444
+    }
+  ],
+  "actions": [
+    {
+      "id": "delivery",
+      "label": "Dostarczanie plików",
+      "sessions": 187403,
+      "denominator": 189566,
+      "share_percent": 98.858973
+    },
+    {
+      "id": "recon",
+      "label": "Rozpoznawanie systemu i sprzętu",
+      "sessions": 183890,
+      "denominator": 189566,
+      "share_percent": 97.005792
+    },
+    {
+      "id": "execution",
+      "label": "Uprawnienia i próby uruchomienia",
+      "sessions": 177940,
+      "denominator": 189566,
+      "share_percent": 93.867044
+    },
+    {
+      "id": "writable",
+      "label": "Próby zapisu w katalogach",
+      "sessions": 177843,
+      "denominator": 189566,
+      "share_percent": 93.815874
+    },
+    {
+      "id": "persistence_cleanup",
+      "label": "Trwały dostęp i usuwanie śladów",
+      "sessions": 6093,
+      "denominator": 189566,
+      "share_percent": 3.214184
+    }
+  ],
+  "counting": {
+    "repeats_included": true,
+    "archives_included": true,
+    "recognized_operator_tests_excluded": true,
+    "non_public_sources_excluded": true,
+    "action_categories_overlap": true,
+    "actions_describe": "command intent, not verified execution or infection",
+    "login_archive_rows_removed": 0
+  },
+  "source_snapshot_sha256": "102cfb48062e7bff8c47e209f4abffdad4b26bd6683267cfa2d7d4c83159b5b0",
+  "classifier_sha256": "b69b595efc097d236ca74b1be1bead225c9980d6a434d46b3cc94e90f5eeb480",
+  "known_classifier_limitations": [
+    {
+      "rule": "curl delivery after recon in the same input",
+      "effect": "A previous reconnaissance segment can suppress a later curl download-intent match. Delivery can be undercounted; impact on totals has not been quantified.",
+      "historical_classifier_retained": true
+    }
+  ],
+  "source_available": "Aggregates and classifier only; raw telemetry is not in this report."
+}

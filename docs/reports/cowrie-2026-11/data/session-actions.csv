@@ -1,0 +1,6 @@
+category,sessions,denominator_sessions_with_commands,share_percent
+delivery,187403,189566,98.858973
+recon,183890,189566,97.005792
+execution,177940,189566,93.867044
+writable,177843,189566,93.815874
+persistence_cleanup,6093,189566,3.214184

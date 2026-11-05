@@ -1,0 +1,47 @@
+{
+  "window": {
+    "start_utc": "2026-10-16T00:00:00+00:00",
+    "end_utc_exclusive": "2026-11-05T13:16:40.420058+00:00"
+  },
+  "intervals": {
+    "SSH": [
+      [
+        "2026-10-27T00:00:00Z",
+        "2026-10-28T21:49:34Z",
+        "Nieustalony stan: brak zapisanych sesji",
+        "#223344"
+      ],
+      [
+        "2026-10-28T21:49:34Z",
+        "2026-11-03T23:45:23Z",
+        "Potwierdzone zatrzymanie bramki SSH",
+        "#473627"
+      ],
+      [
+        "2026-11-05T10:33:37Z",
+        null,
+        "Bieżąca przerwa SSH",
+        "#473627"
+      ]
+    ],
+    "Telnet": [
+      [
+        "2026-10-30T16:20:00Z",
+        "2026-10-31T20:52:12Z",
+        "Przerwa odbioru 30–31.10",
+        "#473627"
+      ],
+      [
+        "2026-11-03T23:23:00Z",
+        "2026-11-03T23:45:23Z",
+        "Krótkie odcięcie po progu dysku",
+        "#473627"
+      ]
+    ]
+  },
+  "telnet_start_utc": "2026-10-26T20:47:51Z",
+  "notes": [
+    "These are documented or explicitly unresolved availability intervals, not evidence of less Internet activity.",
+    "Daily totals are preserved as recorded; partial days are not extrapolated."
+  ]
+}

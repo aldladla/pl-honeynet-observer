@@ -4,6 +4,17 @@ Projekt studencki do zbierania i analizy telemetrii honeypotów oraz nauki
 utrzymania usług na Linuksie. Opublikowany kod obejmuje pipeline Cowrie SSH:
 logi, korelację sesji, detekcje zachowań i metadane pozostawionych plików.
 
+<!-- cowrie-observation-report-2026-11 -->
+**Wyniki obserwacji - 5 listopada 2026:** **602 904 sesje**, **1667 publicznych IP**
+i **9,78 mln zapisów poleceń** z Cowrie SSH i Telnetu. Zestawienie obejmuje archiwa
+oraz powtórzenia; pokazuje też okresy przerw w odbiorze.
+
+**[Przeczytaj raport: kraje, ruch, loginy i działania w sesjach](docs/reports/cowrie-2026-11/README.md)** ·
+[PDF z pięcioma planszami](docs/reports/cowrie-2026-11/cowrie-wyniki.pdf)
+
+![Kraje infrastruktury źródłowej i udział sesji Cowrie](docs/reports/cowrie-2026-11/assets/01-kraje.png)
+<!-- /cowrie-observation-report-2026-11 -->
+
 **Aktualizacja - 21 października 2026:** analiza 11 380 sesji i 165 534 zdarzeń,
 kontrolowane testy SCP/SFTP oraz poprawki jakości danych wdrożone w środowisku
 operatora na VPS. [Studium dochodzenia: równoległe sesje rozpoznania i transferu](docs/case-study-parallel-sessions-2026-10.md)
